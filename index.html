@@ -1,0 +1,1777 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ring-XY-Plotter → p5.js 數位描線轉換器</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #0f172a;
+      color: #e2e8f0;
+    }
+    code, pre, .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    input[type="range"] {
+      accent-color: #38bdf8;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #1e293b;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 3px;
+    }
+    #p5-container canvas {
+      max-width: 100%;
+      height: auto !important;
+      border-radius: 0.5rem;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <!-- Header -->
+  <header class="bg-slate-900/90 border-b border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-30 backdrop-blur">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-base sm:text-lg font-semibold text-slate-100 leading-tight">Ring-XY-Plotter → p5.js 數位描線轉換器</h1>
+        <p class="text-xs text-slate-400">純演算法移植：Otsu 二值化 · 距離變換 · 骨架抽取 · Jobard-Lefer 流線填充 · 貪欲路徑排序</p>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <button id="btn-export-svg" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200 transition flex items-center gap-1.5">
+        <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        匯出 SVG
+      </button>
+      <button id="btn-export-p5" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs font-medium text-white transition flex items-center gap-1.5">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+        匯出 p5.js 程式碼
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 p-4 max-w-[1600px] w-full mx-auto">
+    <!-- Left Sidebar: Controls -->
+    <aside class="lg:col-span-4 xl:col-span-3 flex flex-col gap-3 max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto custom-scrollbar pr-1">
+      <!-- 1. Input Source -->
+      <section class="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-sky-400 mb-2.5 flex items-center justify-between">
+          <span>1. 線稿輸入來源</span>
+          <span id="img-dim-badge" class="text-[11px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">--</span>
+        </h2>
+        <label id="drop-zone" class="block border-2 border-dashed border-slate-700 hover:border-sky-500/70 rounded-lg p-3 text-center cursor-pointer transition bg-slate-950/50">
+          <input id="file-input" type="file" accept="image/*,.svg" class="hidden" />
+          <p class="text-xs text-slate-300 font-medium">點擊或拖放任意線條作品</p>
+          <p class="text-[11px] text-slate-500 mt-0.5">支援 PNG / JPG / WebP / SVG（純本地運算）</p>
+        </label>
+        <div class="mt-2.5">
+          <p class="text-[11px] text-slate-400 mb-1.5">或選擇內建範例測試：</p>
+          <div class="grid grid-cols-2 gap-1.5">
+            <button data-sample="manga" class="sample-btn px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition">日系漫畫眼部線稿</button>
+            <button data-sample="mandala" class="sample-btn px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition">幾何曼陀羅</button>
+            <button data-sample="botanical" class="sample-btn px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition">植物葉脈與粗筆</button>
+            <button data-sample="kanji" class="sample-btn px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition">毛筆書法字形</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Raster -> Vector Parameters (img2svg) -->
+      <section class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 space-y-3">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-sky-400">2. 影像抽線與分離 (img2svg)</h2>
+
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-300">二值化閾值</span>
+            <span id="val-threshold" class="font-mono text-sky-300">Auto (Otsu)</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <input id="param-auto-otsu" type="checkbox" checked class="rounded border-slate-600 bg-slate-800" />
+            <label for="param-auto-otsu" class="text-[11px] text-slate-400">Otsu 自動</label>
+            <input id="param-threshold" type="range" min="10" max="245" value="128" disabled class="flex-1 h-1.5 bg-slate-800 rounded-lg cursor-pointer disabled:opacity-40" />
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <label for="param-invert" class="text-xs text-slate-300">反轉黑白（黑底白線用）</label>
+          <input id="param-invert" type="checkbox" class="rounded border-slate-600 bg-slate-800" />
+        </div>
+
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-300">線／面分離寬度 (--fill-width)</span>
+            <span id="val-fill-width" class="font-mono text-sky-300">7 px</span>
+          </div>
+          <input id="param-fill-width" type="range" min="2" max="28" step="1" value="7" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+          <p class="text-[10px] text-slate-500 mt-0.5">細於此寬度抽中心骨架，粗於此寬度視為填色區</p>
+        </div>
+
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-300">毛刺剪枝 (--spur)</span>
+            <span id="val-spur" class="font-mono text-sky-300">4 px</span>
+          </div>
+          <input id="param-spur" type="range" min="0" max="15" step="1" value="4" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <div class="flex justify-between text-[11px] mb-1">
+              <span class="text-slate-300">高斯平滑</span>
+              <span id="val-smooth" class="font-mono text-sky-300">1.5</span>
+            </div>
+            <input id="param-smooth" type="range" min="0" max="4" step="0.5" value="1.5" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+          </div>
+          <div>
+            <div class="flex justify-between text-[11px] mb-1">
+              <span class="text-slate-300">RDP 簡化</span>
+              <span id="val-simplify" class="font-mono text-sky-300">1.0</span>
+            </div>
+            <input id="param-simplify" type="range" min="0.2" max="4.0" step="0.2" value="1.0" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+          </div>
+        </div>
+
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-300">模擬筆寬 (--pen-width)</span>
+            <span id="val-pen-width" class="font-mono text-sky-300">1.8 px</span>
+          </div>
+          <input id="param-pen-width" type="range" min="0.6" max="5.0" step="0.2" value="1.8" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+        </div>
+      </section>
+
+      <!-- 3. Hatching & Refinement (hatch.py + refine-passes) -->
+      <section class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 space-y-3">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-sky-400">3. 粗線填充與殘差補線 (hatch / refine)</h2>
+
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">填色區處理模式</label>
+          <select id="param-fill-mode" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+            <option value="flow" selected>Jobard-Lefer 方向場流線填充 (推薦)</option>
+            <option value="linear">平行排線填充 (Linear Hatch)</option>
+            <option value="outline">僅描外輪廓 (Outline)</option>
+            <option value="none">不填充 (None)</option>
+          </select>
+        </div>
+
+        <div id="hatch-spacing-wrap">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-300">流線／排線間距</span>
+            <span id="val-hatch-spacing" class="font-mono text-sky-300">3.5 px</span>
+          </div>
+          <input id="param-hatch-spacing" type="range" min="1.5" max="10" step="0.5" value="3.5" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+        </div>
+
+        <div class="flex items-center justify-between">
+          <div>
+            <label for="param-multipass" class="text-xs text-slate-300 block">多道平行加粗描線</label>
+            <span class="text-[10px] text-slate-500">依局部線寬沿法線偏移補線</span>
+          </div>
+          <input id="param-multipass" type="checkbox" checked class="rounded border-slate-600 bg-slate-800" />
+        </div>
+
+        <div class="flex items-center justify-between">
+          <div>
+            <label for="param-residual" class="text-xs text-slate-300 block">殘差漏墨補線 (輕量 refine)</label>
+            <span class="text-[10px] text-slate-500">比對渲染誤差，補齊漏畫細部</span>
+          </div>
+          <input id="param-residual" type="checkbox" checked class="rounded border-slate-600 bg-slate-800" />
+        </div>
+
+        <button id="btn-reprocess" class="w-full py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs transition shadow-lg shadow-sky-500/20">
+          重新轉換路徑
+        </button>
+      </section>
+
+      <!-- 4. p5.js Plotter Playback Settings -->
+      <section class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 space-y-3">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-sky-400">4. p5.js 數位描線模擬參數</h2>
+
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-300">繪製速度（步進點數/幀）</span>
+            <span id="val-speed" class="font-mono text-sky-300">12</span>
+          </div>
+          <input id="param-speed" type="range" min="1" max="60" step="1" value="12" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[11px] text-slate-400 mb-1">紙張底色</label>
+            <select id="param-paper" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200">
+              <option value="cream">米白畫紙</option>
+              <option value="white">純白工程紙</option>
+              <option value="dark">深藍圖紙</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[11px] text-slate-400 mb-1">墨水顏色</label>
+            <input id="param-ink-color" type="color" value="#1e293b" class="w-full h-7 bg-slate-800 border border-slate-700 rounded cursor-pointer p-0.5" />
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <label for="param-show-travel" class="text-xs text-slate-300">顯示提筆空跑軌跡（紅虛線）</label>
+          <input id="param-show-travel" type="checkbox" checked class="rounded border-slate-600 bg-slate-800" />
+        </div>
+
+        <div class="flex items-center justify-between">
+          <label for="param-show-head" class="text-xs text-slate-300">顯示虛擬筆頭十字準心</label>
+          <input id="param-show-head" type="checkbox" checked class="rounded border-slate-600 bg-slate-800" />
+        </div>
+      </section>
+    </aside>
+
+    <!-- Right Main Canvas & Stats -->
+    <section class="lg:col-span-8 xl:col-span-9 flex flex-col gap-3">
+      <!-- Top Playback & View Mode Bar -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <button id="btn-play-pause" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center gap-1.5">
+            <span id="play-icon">暫停</span>
+          </button>
+          <button id="btn-restart" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition">
+            重頭描繪
+          </button>
+          <button id="btn-instant" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition">
+            立即完成
+          </button>
+        </div>
+
+        <div class="flex items-center gap-1.5 bg-slate-950 p-1 rounded-lg border border-slate-800">
+          <button data-view="p5" class="view-tab px-2.5 py-1 rounded text-xs font-medium bg-sky-600 text-white transition">p5.js 描線模擬</button>
+          <button data-view="source" class="view-tab px-2.5 py-1 rounded text-xs font-medium text-slate-400 hover:text-slate-200 transition">原圖</button>
+          <button data-view="mask" class="view-tab px-2.5 py-1 rounded text-xs font-medium text-slate-400 hover:text-slate-200 transition">線／面分離圖</button>
+          <button data-view="skeleton" class="view-tab px-2.5 py-1 rounded text-xs font-medium text-slate-400 hover:text-slate-200 transition">骨架與流線場</button>
+        </div>
+      </div>
+
+      <!-- Progress & Stats Bar -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
+          <div class="text-[11px] text-slate-400">描繪進度</div>
+          <div id="stat-progress" class="text-sm font-mono font-semibold text-sky-400">0%</div>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
+          <div class="text-[11px] text-slate-400">折線筆畫數</div>
+          <div id="stat-strokes" class="text-sm font-mono font-semibold text-slate-100">0</div>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
+          <div class="text-[11px] text-slate-400">總頂點數</div>
+          <div id="stat-points" class="text-sm font-mono font-semibold text-slate-100">0</div>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
+          <div class="text-[11px] text-slate-400">落筆／空跑比</div>
+          <div id="stat-ratio" class="text-sm font-mono font-semibold text-emerald-400">--</div>
+        </div>
+      </div>
+
+      <!-- Canvas Viewport -->
+      <div class="flex-1 bg-slate-900/70 border border-slate-800 rounded-xl p-4 flex items-center justify-center relative min-h-[460px]">
+        <div id="p5-container" class="flex items-center justify-center w-full"></div>
+        <canvas id="debug-canvas" class="hidden max-w-full max-h-[640px] rounded-lg shadow-2xl"></canvas>
+        <div id="processing-badge" class="hidden absolute top-4 right-4 bg-slate-950/90 border border-sky-500/40 text-sky-300 text-xs px-3 py-1.5 rounded-full flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-sky-400 animate-ping"></span>
+          演算法計算中...
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Export p5.js Modal -->
+  <div id="p5-modal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl">
+      <div class="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-100">獨立 p5.js 描線操作腳本</h3>
+          <p class="text-xs text-slate-400">可直接貼到 editor.p5js.org 或下載為 sketch.js 使用</p>
+        </div>
+        <button id="btn-close-modal" class="text-slate-400 hover:text-white p-1">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="p-4 flex-1 overflow-auto custom-scrollbar">
+        <pre id="p5-code-preview" class="text-xs font-mono text-sky-200 bg-slate-950 p-4 rounded-xl border border-slate-800 overflow-x-auto"></pre>
+      </div>
+      <div class="px-5 py-3 border-t border-slate-800 flex justify-end gap-2">
+        <button id="btn-copy-p5" class="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition">複製程式碼</button>
+        <button id="btn-download-p5" class="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs font-medium text-white transition">下載 sketch.js</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed bottom-5 right-5 z-50 hidden bg-slate-800 border border-slate-600 text-slate-100 text-xs px-4 py-2.5 rounded-lg shadow-xl"></div>
+
+  <script>
+    // =========================================================================
+    // Global State
+    // =========================================================================
+    const MAX_WORK_SIZE = 520;
+    let sourceCanvas = document.createElement('canvas');
+    let sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+    let workW = 480, workH = 480;
+
+    // Processed data buffers for debug views & rendering
+    let grayBuf = null;       // Uint8Array
+    let binaryMask = null;    // Uint8Array (0 or 1)
+    let distMap = null;       // Float32Array (Euclidean distance to background)
+    let lineMask = null;      // Uint8Array
+    let fillMask = null;      // Uint8Array
+    let skeletonMask = null;  // Uint8Array
+    let orientCos = null;     // Float32Array
+    let orientSin = null;     // Float32Array
+
+    let finalPolylines = [];  // Array of { pts: [{x,y}], type: 'line'|'hatch'|'multipass'|'residual' }
+    let drawStats = { strokes: 0, points: 0, drawDist: 0, travelDist: 0 };
+
+    // Playback & UI state
+    let currentView = 'p5';
+    let isPlaying = true;
+    let animState = { strokeIdx: 0, ptIdx: 0, t: 0, done: false };
+    let p5Instance = null;
+
+    // =========================================================================
+    // UI Helpers
+    // =========================================================================
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.remove('hidden');
+      clearTimeout(t._timer);
+      t._timer = setTimeout(() => t.classList.add('hidden'), 2400);
+    }
+
+    function getParams() {
+      return {
+        autoOtsu: document.getElementById('param-auto-otsu').checked,
+        threshold: parseInt(document.getElementById('param-threshold').value, 10),
+        invert: document.getElementById('param-invert').checked,
+        fillWidth: parseFloat(document.getElementById('param-fill-width').value),
+        spur: parseInt(document.getElementById('param-spur').value, 10),
+        smooth: parseFloat(document.getElementById('param-smooth').value),
+        simplify: parseFloat(document.getElementById('param-simplify').value),
+        penWidth: parseFloat(document.getElementById('param-pen-width').value),
+        fillMode: document.getElementById('param-fill-mode').value,
+        hatchSpacing: parseFloat(document.getElementById('param-hatch-spacing').value),
+        multipass: document.getElementById('param-multipass').checked,
+        residual: document.getElementById('param-residual').checked,
+        speed: parseInt(document.getElementById('param-speed').value, 10),
+        paper: document.getElementById('param-paper').value,
+        inkColor: document.getElementById('param-ink-color').value,
+        showTravel: document.getElementById('param-show-travel').checked,
+        showHead: document.getElementById('param-show-head').checked
+      };
+    }
+
+    // =========================================================================
+    // Sample Line-Art Generators (So app opens rich immediately)
+    // =========================================================================
+    function loadSample(name) {
+      const W = 480, H = 480;
+      sourceCanvas.width = W;
+      sourceCanvas.height = H;
+      const ctx = sourceCtx;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = '#000000';
+      ctx.fillStyle = '#000000';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      if (name === 'manga') {
+        // Stylized manga eye + hair strands (mix of fine lines and thick filled lashes/iris)
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.moveTo(85, 220);
+        ctx.bezierCurveTo(160, 130, 320, 125, 395, 215);
+        ctx.bezierCurveTo(340, 175, 170, 170, 85, 220);
+        ctx.fill();
+        ctx.stroke();
+
+        // Lower eyelid
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(115, 290);
+        ctx.bezierCurveTo(200, 325, 300, 320, 370, 275);
+        ctx.stroke();
+
+        // Eyebrow
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(70, 145);
+        ctx.quadraticCurveTo(220, 75, 415, 130);
+        ctx.stroke();
+
+        // Iris outer ring
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.ellipse(245, 232, 62, 72, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Pupil (thick filled region -> triggers hatch!)
+        ctx.beginPath();
+        ctx.ellipse(245, 238, 28, 34, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Highlight
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(218, 204, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(268, 265, 7, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Fine manga speed/hair lines
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 8; i++) {
+          ctx.beginPath();
+          ctx.moveTo(50 + i * 14, 40);
+          ctx.quadraticCurveTo(40 + i * 10, 240, 75 + i * 12, 430);
+          ctx.stroke();
+        }
+        // Iris radial hatching
+        for (let a = 0; a < Math.PI * 2; a += Math.PI / 10) {
+          ctx.beginPath();
+          ctx.moveTo(245 + Math.cos(a) * 38, 232 + Math.sin(a) * 44);
+          ctx.lineTo(245 + Math.cos(a) * 56, 232 + Math.sin(a) * 65);
+          ctx.stroke();
+        }
+      } else if (name === 'mandala') {
+        const cx = W / 2, cy = H / 2;
+        ctx.lineWidth = 2.5;
+        for (let r = 40; r <= 190; r += 30) {
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        const petals = 12;
+        for (let i = 0; i < petals; i++) {
+          const ang = (i / petals) * Math.PI * 2;
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate(ang);
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(40, 0);
+          ctx.quadraticCurveTo(115, -42, 190, 0);
+          ctx.quadraticCurveTo(115, 42, 40, 0);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(150, 0, 12, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+        ctx.beginPath();
+        ctx.arc(cx, cy, 24, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (name === 'botanical') {
+        // Stem + Leaves (thick & thin strokes)
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        ctx.moveTo(140, 430);
+        ctx.bezierCurveTo(180, 300, 260, 180, 340, 60);
+        ctx.stroke();
+
+        const leaves = [
+          { x: 205, y: 290, ang: -0.7, scale: 1.0 },
+          { x: 235, y: 235, ang: 0.65, scale: 0.9 },
+          { x: 275, y: 165, ang: -0.6, scale: 0.78 },
+          { x: 305, y: 115, ang: 0.55, scale: 0.6 }
+        ];
+        for (const lf of leaves) {
+          ctx.save();
+          ctx.translate(lf.x, lf.y);
+          ctx.rotate(lf.ang);
+          ctx.scale(lf.scale, lf.scale);
+          ctx.lineWidth = 3.5;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.bezierCurveTo(40, -55, 110, -40, 130, 0);
+          ctx.bezierCurveTo(110, 40, 40, 55, 0, 0);
+          ctx.stroke();
+          // Veins
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(118, 0);
+          for (let vx = 25; vx <= 95; vx += 22) {
+            ctx.moveTo(vx, 0);
+            ctx.lineTo(vx + 18, -22);
+            ctx.moveTo(vx, 0);
+            ctx.lineTo(vx + 18, 22);
+          }
+          ctx.stroke();
+          ctx.restore();
+        }
+        // Decorative thick seed pod
+        ctx.beginPath();
+        ctx.ellipse(150, 370, 22, 34, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (name === 'kanji') {
+        // Brush-style character "線" / calligraphic strokes (thick regions for flow hatch)
+        const drawStroke = (pts, widths) => {
+          for (let i = 0; i < pts.length - 1; i++) {
+            const p0 = pts[i], p1 = pts[i + 1];
+            const w0 = widths[i], w1 = widths[i + 1];
+            const steps = 24;
+            for (let s = 0; s <= steps; s++) {
+              const t = s / steps;
+              const x = p0[0] + (p1[0] - p0[0]) * t;
+              const y = p0[1] + (p1[1] - p0[1]) * t;
+              const r = (w0 + (w1 - w0) * t) / 2;
+              ctx.beginPath();
+              ctx.arc(x, y, r, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+        };
+        // Sweeping brush strokes
+        drawStroke([[110, 110], [240, 95], [370, 115]], [16, 22, 14]);
+        drawStroke([[240, 70], [235, 240], [220, 400]], [20, 18, 12]);
+        drawStroke([[130, 210], [240, 195], [345, 215]], [14, 18, 12]);
+        drawStroke([[175, 255], [135, 335], [90, 385]], [14, 16, 8]);
+        drawStroke([[285, 255], [335, 335], [395, 390]], [14, 20, 10]);
+      }
+
+      runPipeline();
+    }
+
+    // =========================================================================
+    // Core Algorithms (Ported from kohya-ss/ring-xy-plotter)
+    // =========================================================================
+
+    // 1. Otsu Automatic Thresholding
+    function computeOtsuThreshold(gray) {
+      const hist = new Int32Array(256);
+      for (let i = 0; i < gray.length; i++) hist[gray[i]]++;
+      const total = gray.length;
+      let sum = 0;
+      for (let t = 0; t < 256; t++) sum += t * hist[t];
+      let sumB = 0, wB = 0, wF = 0;
+      let varMax = 0, threshold = 128;
+      for (let t = 0; t < 256; t++) {
+        wB += hist[t];
+        if (wB === 0) continue;
+        wF = total - wB;
+        if (wF === 0) break;
+        sumB += t * hist[t];
+        const mB = sumB / wB;
+        const mF = (sum - sumB) / wF;
+        const varBetween = wB * wF * (mB - mF) * (mB - mF);
+        if (varBetween > varMax) {
+          varMax = varBetween;
+          threshold = t;
+        }
+      }
+      return threshold;
+    }
+
+    // 2. Exact 2D Euclidean Distance Transform (Felzenszwalb & Huttenlocher O(W*H))
+    function computeEDT(mask, w, h) {
+      const INF = 1e12;
+      const f = new Float32Array(w * h);
+      for (let i = 0; i < w * h; i++) {
+        f[i] = mask[i] ? INF : 0;
+      }
+
+      const d = new Float32Array(Math.max(w, h));
+      const v = new Int32Array(Math.max(w, h));
+      const z = new Float32Array(Math.max(w, h) + 1);
+
+      function edt1d(arr, n, stride, offset) {
+        let k = 0;
+        v[0] = 0;
+        z[0] = -INF;
+        z[1] = INF;
+        for (let q = 1; q < n; q++) {
+          let s;
+          while (true) {
+            const r = v[k];
+            const fr = arr[offset + r * stride];
+            const fq = arr[offset + q * stride];
+            s = ((fq + q * q) - (fr + r * r)) / (2 * q - 2 * r);
+            if (s <= z[k]) k--;
+            else break;
+          }
+          k++;
+          v[k] = q;
+          z[k] = s;
+          z[k + 1] = INF;
+        }
+        k = 0;
+        for (let q = 0; q < n; q++) {
+          while (z[k + 1] < q) k++;
+          const r = v[k];
+          const fr = arr[offset + r * stride];
+          d[q] = (q - r) * (q - r) + fr;
+        }
+        for (let q = 0; q < n; q++) {
+          arr[offset + q * stride] = d[q];
+        }
+      }
+
+      // Pass 1: columns
+      for (let x = 0; x < w; x++) edt1d(f, h, w, x);
+      // Pass 2: rows
+      for (let y = 0; y < h; y++) edt1d(f, w, 1, y * w);
+
+      const dist = new Float32Array(w * h);
+      for (let i = 0; i < w * h; i++) dist[i] = Math.sqrt(f[i]);
+      return dist;
+    }
+
+    // 3. Zhang-Suen Thinning (Skeletonization)
+    function zhangSuenThinning(srcMask, w, h) {
+      const img = new Uint8Array(srcMask);
+      let changed = true;
+      const toRemove = [];
+      let iter = 0;
+      while (changed && iter < 80) {
+        changed = false;
+        iter++;
+        for (let step = 0; step < 2; step++) {
+          toRemove.length = 0;
+          for (let y = 1; y < h - 1; y++) {
+            const row = y * w;
+            for (let x = 1; x < w - 1; x++) {
+              const idx = row + x;
+              if (img[idx] === 0) continue;
+              const p2 = img[idx - w];
+              const p3 = img[idx - w + 1];
+              const p4 = img[idx + 1];
+              const p5 = img[idx + w + 1];
+              const p6 = img[idx + w];
+              const p7 = img[idx + w - 1];
+              const p8 = img[idx - 1];
+              const p9 = img[idx - w - 1];
+              const B = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
+              if (B < 2 || B > 6) continue;
+              let A = 0;
+              if (p2 === 0 && p3 === 1) A++;
+              if (p3 === 0 && p4 === 1) A++;
+              if (p4 === 0 && p5 === 1) A++;
+              if (p5 === 0 && p6 === 1) A++;
+              if (p6 === 0 && p7 === 1) A++;
+              if (p7 === 0 && p8 === 1) A++;
+              if (p8 === 0 && p9 === 1) A++;
+              if (p9 === 0 && p2 === 1) A++;
+              if (A !== 1) continue;
+              if (step === 0) {
+                if (p2 * p4 * p6 !== 0) continue;
+                if (p4 * p6 * p8 !== 0) continue;
+              } else {
+                if (p2 * p4 * p8 !== 0) continue;
+                if (p2 * p6 * p8 !== 0) continue;
+              }
+              toRemove.push(idx);
+            }
+          }
+          if (toRemove.length > 0) {
+            changed = true;
+            for (let i = 0; i < toRemove.length; i++) img[toRemove[i]] = 0;
+          }
+        }
+      }
+      return img;
+    }
+
+    // 4. Trace Skeleton into Polylines + Spur Pruning + Junction Joining
+    function traceSkeletonPolylines(skel, w, h, spurLen) {
+      const dirs = [
+        [-1, -1], [0, -1], [1, -1],
+        [1, 0], [1, 1], [0, 1],
+        [-1, 1], [-1, 0]
+      ];
+      const deg = new Uint8Array(w * h);
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const idx = y * w + x;
+          if (!skel[idx]) continue;
+          let c = 0;
+          for (const [dx, dy] of dirs) {
+            if (skel[(y + dy) * w + (x + dx)]) c++;
+          }
+          deg[idx] = c;
+        }
+      }
+
+      const visitedEdge = new Set();
+      const edgeKey = (a, b) => (a < b ? `${a}_${b}` : `${b}_${a}`);
+      const chains = [];
+
+      function traceFrom(startIdx, nextIdx) {
+        const pts = [{ x: startIdx % w, y: Math.floor(startIdx / w), idx: startIdx }];
+        visitedEdge.add(edgeKey(startIdx, nextIdx));
+        let prev = startIdx;
+        let curr = nextIdx;
+        while (true) {
+          const cx = curr % w, cy = Math.floor(curr / w);
+          pts.push({ x: cx, y: cy, idx: curr });
+          if (deg[curr] !== 2) break; // Endpoint or junction
+          let foundNext = -1;
+          for (const [dx, dy] of dirs) {
+            const nx = cx + dx, ny = cy + dy;
+            if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+            const nIdx = ny * w + nx;
+            if (skel[nIdx] && nIdx !== prev && !visitedEdge.has(edgeKey(curr, nIdx))) {
+              foundNext = nIdx;
+              break;
+            }
+          }
+          if (foundNext === -1) break;
+          visitedEdge.add(edgeKey(curr, foundNext));
+          prev = curr;
+          curr = foundNext;
+        }
+        return pts;
+      }
+
+      // First pass: trace from all non-degree-2 nodes (endpoints and junctions)
+      for (let i = 0; i < w * h; i++) {
+        if (!skel[i] || deg[i] === 2 || deg[i] === 0) continue;
+        const x = i % w, y = Math.floor(i / w);
+        for (const [dx, dy] of dirs) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          const nIdx = ny * w + nx;
+          if (skel[nIdx] && !visitedEdge.has(edgeKey(i, nIdx))) {
+            chains.push(traceFrom(i, nIdx));
+          }
+        }
+      }
+
+      // Second pass: closed loops (all degree 2)
+      for (let i = 0; i < w * h; i++) {
+        if (!skel[i] || deg[i] !== 2) continue;
+        const x = i % w, y = Math.floor(i / w);
+        for (const [dx, dy] of dirs) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          const nIdx = ny * w + nx;
+          if (skel[nIdx] && !visitedEdge.has(edgeKey(i, nIdx))) {
+            chains.push(traceFrom(i, nIdx));
+          }
+        }
+      }
+
+      // Spur pruning: remove short chains with at least one degree-1 endpoint
+      const kept = chains.filter(ch => {
+        if (ch.length < 2) return false;
+        const dStart = deg[ch[0].idx];
+        const dEnd = deg[ch[ch.length - 1].idx];
+        if ((dStart === 1 || dEnd === 1) && ch.length <= spurLen) {
+          return false;
+        }
+        return true;
+      });
+
+      // Junction joining: merge collinear chains meeting at junctions
+      const byNode = new Map();
+      kept.forEach((ch, ci) => {
+        const s = ch[0].idx, e = ch[ch.length - 1].idx;
+        if (!byNode.has(s)) byNode.set(s, []);
+        if (!byNode.has(e)) byNode.set(e, []);
+        byNode.get(s).push({ ci, atStart: true });
+        if (s !== e) byNode.get(e).push({ ci, atStart: false });
+      });
+
+      const mergedAway = new Set();
+      function tangentAt(ch, atStart) {
+        const k = Math.min(4, ch.length - 1);
+        const p0 = atStart ? ch[0] : ch[ch.length - 1];
+        const p1 = atStart ? ch[k] : ch[ch.length - 1 - k];
+        const dx = p1.x - p0.x, dy = p1.y - p0.y;
+        const len = Math.hypot(dx, dy) || 1;
+        return { x: dx / len, y: dy / len };
+      }
+
+      for (const [nodeIdx, list] of byNode.entries()) {
+        if (list.length < 2) continue;
+        const active = list.filter(item => !mergedAway.has(item.ci));
+        if (active.length < 2) continue;
+        let bestPair = null, bestScore = -0.5; // dot(tA, -tB) > 0.5 means collinear
+        for (let i = 0; i < active.length; i++) {
+          for (let j = i + 1; j < active.length; j++) {
+            const a = active[i], b = active[j];
+            if (a.ci === b.ci) continue;
+            const ta = tangentAt(kept[a.ci], a.atStart);
+            const tb = tangentAt(kept[b.ci], b.atStart);
+            const dot = -(ta.x * tb.x + ta.y * tb.y);
+            if (dot > 0.65 && dot > bestScore) {
+              bestScore = dot;
+              bestPair = [a, b];
+            }
+          }
+        }
+        if (bestPair) {
+          const [a, b] = bestPair;
+          const chA = kept[a.ci], chB = kept[b.ci];
+          const seqA = a.atStart ? [...chA].reverse() : [...chA];
+          const seqB = b.atStart ? chB.slice(1) : [...chB].reverse().slice(1);
+          kept[a.ci] = seqA.concat(seqB);
+          mergedAway.add(b.ci);
+        }
+      }
+
+      return kept
+        .filter((_, i) => !mergedAway.has(i))
+        .map(ch => ch.map(p => ({ x: p.x, y: p.y })));
+    }
+
+    // 5. Gaussian Smoothing & RDP Simplification
+    function gaussianSmooth(pts, sigma) {
+      if (sigma <= 0.1 || pts.length < 4) return pts;
+      const isClosed = Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 2.0;
+      const rad = Math.ceil(sigma * 2.5);
+      const kernel = [];
+      let ksum = 0;
+      for (let i = -rad; i <= rad; i++) {
+        const v = Math.exp(-(i * i) / (2 * sigma * sigma));
+        kernel.push(v);
+        ksum += v;
+      }
+      for (let i = 0; i < kernel.length; i++) kernel[i] /= ksum;
+
+      const out = [];
+      for (let i = 0; i < pts.length; i++) {
+        if (!isClosed && (i === 0 || i === pts.length - 1)) {
+          out.push({ x: pts[i].x, y: pts[i].y });
+          continue;
+        }
+        let sx = 0, sy = 0;
+        for (let k = -rad; k <= rad; k++) {
+          let idx = i + k;
+          if (isClosed) {
+            idx = ((idx % pts.length) + pts.length) % pts.length;
+          } else {
+            idx = Math.max(0, Math.min(pts.length - 1, idx));
+          }
+          const w = kernel[k + rad];
+          sx += pts[idx].x * w;
+          sy += pts[idx].y * w;
+        }
+        out.push({ x: sx, y: sy });
+      }
+      return out;
+    }
+
+    function rdpSimplify(pts, eps) {
+      if (pts.length <= 2) return pts;
+      let maxDist = 0, idx = 0;
+      const p1 = pts[0], p2 = pts[pts.length - 1];
+      const dx = p2.x - p1.x, dy = p2.y - p1.y;
+      const lenSq = dx * dx + dy * dy;
+      for (let i = 1; i < pts.length - 1; i++) {
+        let d;
+        if (lenSq === 0) {
+          d = Math.hypot(pts[i].x - p1.x, pts[i].y - p1.y);
+        } else {
+          const t = Math.max(0, Math.min(1, ((pts[i].x - p1.x) * dx + (pts[i].y - p1.y) * dy) / lenSq));
+          const px = p1.x + t * dx, py = p1.y + t * dy;
+          d = Math.hypot(pts[i].x - px, pts[i].y - py);
+        }
+        if (d > maxDist) {
+          maxDist = d;
+          idx = i;
+        }
+      }
+      if (maxDist > eps) {
+        const left = rdpSimplify(pts.slice(0, idx + 1), eps);
+        const right = rdpSimplify(pts.slice(idx), eps);
+        return left.slice(0, -1).concat(right);
+      }
+      return [p1, p2];
+    }
+
+    // 6. Multipass Normal-Offset Parallel Lines
+    function generateMultipass(polylines, distMap, w, h, penWidth) {
+      const extra = [];
+      for (const poly of polylines) {
+        if (poly.pts.length < 2) continue;
+        // Sample median width along polyline
+        let sumW = 0;
+        for (const p of poly.pts) {
+          const ix = Math.max(0, Math.min(w - 1, Math.round(p.x)));
+          const iy = Math.max(0, Math.min(h - 1, Math.round(p.y)));
+          sumW += distMap[iy * w + ix] * 2;
+        }
+        const avgW = sumW / poly.pts.length;
+        const passes = Math.floor(avgW / penWidth);
+        if (passes <= 1) continue;
+        const maxOffset = (avgW - penWidth) * 0.5;
+        const numOffsets = Math.min(4, passes - 1);
+        for (let k = 1; k <= numOffsets; k++) {
+          const sign = k % 2 === 1 ? 1 : -1;
+          const level = Math.ceil(k / 2) / Math.ceil(numOffsets / 2);
+          const offDist = sign * Math.min(maxOffset, level * penWidth * 0.85);
+          const offPts = [];
+          for (let i = 0; i < poly.pts.length; i++) {
+            const pPrev = poly.pts[Math.max(0, i - 1)];
+            const pNext = poly.pts[Math.min(poly.pts.length - 1, i + 1)];
+            const tx = pNext.x - pPrev.x, ty = pNext.y - pPrev.y;
+            const len = Math.hypot(tx, ty) || 1;
+            const nx = -ty / len, ny = tx / len;
+            const ox = poly.pts[i].x + nx * offDist;
+            const oy = poly.pts[i].y + ny * offDist;
+            if (ox >= 0 && ox < w && oy >= 0 && oy < h) {
+              offPts.push({ x: ox, y: oy });
+            }
+          }
+          if (offPts.length >= 2) extra.push({ pts: offPts, type: 'multipass' });
+        }
+      }
+      return extra;
+    }
+
+    // 7. Double-Angle Orientation Field & Jobard-Lefer Streamline Hatching (hatch.py)
+    function buildOrientationField(polylines, w, h) {
+      const cos2 = new Float32Array(w * h);
+      const sin2 = new Float32Array(w * h);
+      for (const poly of polylines) {
+        const pts = poly.pts;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const dx = pts[i + 1].x - pts[i].x;
+          const dy = pts[i + 1].y - pts[i].y;
+          const len = Math.hypot(dx, dy);
+          if (len < 0.5) continue;
+          const ang = Math.atan2(dy, dx);
+          const c2 = Math.cos(2 * ang), s2 = Math.sin(2 * ang);
+          const steps = Math.ceil(len);
+          for (let s = 0; s <= steps; s++) {
+            const x = Math.round(pts[i].x + (dx * s) / steps);
+            const y = Math.round(pts[i].y + (dy * s) / steps);
+            if (x >= 0 && x < w && y >= 0 && y < h) {
+              cos2[y * w + x] += c2;
+              sin2[y * w + x] += s2;
+            }
+          }
+        }
+      }
+
+      // Multi-pass separable box blur to diffuse orientation field smoothly
+      const tmpC = new Float32Array(w * h);
+      const tmpS = new Float32Array(w * h);
+      const radii = [12, 8, 5];
+      for (const rad of radii) {
+        // Horizontal
+        for (let y = 0; y < h; y++) {
+          let sc = 0, ss = 0;
+          const row = y * w;
+          for (let x = 0; x <= rad && x < w; x++) { sc += cos2[row + x]; ss += sin2[row + x]; }
+          for (let x = 0; x < w; x++) {
+            tmpC[row + x] = sc;
+            tmpS[row + x] = ss;
+            const addX = x + rad + 1;
+            const remX = x - rad;
+            if (addX < w) { sc += cos2[row + addX]; ss += sin2[row + addX]; }
+            if (remX >= 0) { sc -= cos2[row + remX]; ss -= sin2[row + remX]; }
+          }
+        }
+        // Vertical
+        for (let x = 0; x < w; x++) {
+          let sc = 0, ss = 0;
+          for (let y = 0; y <= rad && y < h; y++) { sc += tmpC[y * w + x]; ss += tmpS[y * w + x]; }
+          for (let y = 0; y < h; y++) {
+            cos2[y * w + x] = sc;
+            sin2[y * w + x] = ss;
+            const addY = y + rad + 1;
+            const remY = y - rad;
+            if (addY < h) { sc += tmpC[addY * w + x]; ss += tmpS[addY * w + x]; }
+            if (remY >= 0) { sc -= tmpC[remY * w + x]; ss -= tmpS[remY * w + x]; }
+          }
+        }
+      }
+
+      const oCos = new Float32Array(w * h);
+      const oSin = new Float32Array(w * h);
+      const DEFAULT_ANG = Math.PI / 4;
+      for (let i = 0; i < w * h; i++) {
+        const mag = Math.hypot(cos2[i], sin2[i]);
+        const theta = mag > 1e-4 ? 0.5 * Math.atan2(sin2[i], cos2[i]) : DEFAULT_ANG;
+        oCos[i] = Math.cos(theta);
+        oSin[i] = Math.sin(theta);
+      }
+      return { oCos, oSin };
+    }
+
+    function jobardLeferHatch(fillMask, w, h, dSep, oCos, oSin) {
+      const streamlines = [];
+      const dTest = dSep * 0.52;
+      const stepSize = 1.5;
+      const cellSize = dSep;
+      const gw = Math.ceil(w / cellSize);
+      const gh = Math.ceil(h / cellSize);
+      const grid = Array.from({ length: gw * gh }, () => []);
+
+      function isTooClose(x, y, minDist) {
+        const gx = Math.floor(x / cellSize);
+        const gy = Math.floor(y / cellSize);
+        const minSq = minDist * minDist;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = gx + dx, ny = gy + dy;
+            if (nx < 0 || nx >= gw || ny < 0 || ny >= gh) continue;
+            const bucket = grid[ny * gw + nx];
+            for (let i = 0; i < bucket.length; i++) {
+              const p = bucket[i];
+              const ddx = p.x - x, ddy = p.y - y;
+              if (ddx * ddx + ddy * ddy < minSq) return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      function addPointToGrid(x, y) {
+        const gx = Math.max(0, Math.min(gw - 1, Math.floor(x / cellSize)));
+        const gy = Math.max(0, Math.min(gh - 1, Math.floor(y / cellSize)));
+        grid[gy * gw + gx].push({ x, y });
+      }
+
+      function getDir(x, y, prevDx, prevDy) {
+        const ix = Math.max(0, Math.min(w - 1, Math.round(x)));
+        const iy = Math.max(0, Math.min(h - 1, Math.round(y)));
+        let vx = oCos[iy * w + ix];
+        let vy = oSin[iy * w + ix];
+        if (prevDx !== undefined && vx * prevDx + vy * prevDy < 0) {
+          vx = -vx;
+          vy = -vy;
+        }
+        return { vx, vy };
+      }
+
+      function traceStreamline(sx, sy) {
+        if (sx < 1 || sx >= w - 1 || sy < 1 || sy >= h - 1) return null;
+        if (!fillMask[Math.round(sy) * w + Math.round(sx)]) return null;
+        if (isTooClose(sx, sy, dSep * 0.85)) return null;
+
+        const fwd = [];
+        const bwd = [];
+        const initDir = getDir(sx, sy);
+
+        // Forward
+        let cx = sx, cy = sy, dx = initDir.vx, dy = initDir.vy;
+        for (let iter = 0; iter < 500; iter++) {
+          cx += dx * stepSize;
+          cy += dy * stepSize;
+          if (cx < 1 || cx >= w - 1 || cy < 1 || cy >= h - 1) break;
+          if (!fillMask[Math.round(cy) * w + Math.round(cx)]) break;
+          if (isTooClose(cx, cy, dTest)) break;
+          fwd.push({ x: cx, y: cy });
+          const nd = getDir(cx, cy, dx, dy);
+          dx = nd.vx; dy = nd.vy;
+        }
+
+        // Backward
+        cx = sx; cy = sy; dx = -initDir.vx; dy = -initDir.vy;
+        for (let iter = 0; iter < 500; iter++) {
+          cx += dx * stepSize;
+          cy += dy * stepSize;
+          if (cx < 1 || cx >= w - 1 || cy < 1 || cy >= h - 1) break;
+          if (!fillMask[Math.round(cy) * w + Math.round(cx)]) break;
+          if (isTooClose(cx, cy, dTest)) break;
+          bwd.push({ x: cx, y: cy });
+          const nd = getDir(cx, cy, dx, dy);
+          dx = nd.vx; dy = nd.vy;
+        }
+
+        const pts = bwd.reverse().concat([{ x: sx, y: sy }], fwd);
+        if (pts.length < 3) return null;
+        for (const p of pts) addPointToGrid(p.x, p.y);
+        return pts;
+      }
+
+      // Queue-based Jobard-Lefer seeding
+      const seedQueue = [];
+      const stride = Math.max(4, Math.round(dSep * 1.5));
+      for (let y = stride; y < h - stride; y += stride) {
+        for (let x = stride; x < w - stride; x += stride) {
+          if (fillMask[y * w + x]) seedQueue.push({ x, y });
+        }
+      }
+
+      // Consistent drawing direction reference (ORIENT from ring-xy-plotter hatch.py)
+      const ORIENT_X = 0.287, ORIENT_Y = 0.958;
+      let processed = 0;
+      while (seedQueue.length > 0 && processed < 4000) {
+        const seed = seedQueue.shift();
+        processed++;
+        const pts = traceStreamline(seed.x, seed.y);
+        if (!pts) continue;
+
+        // Align direction consistently
+        const dx = pts[pts.length - 1].x - pts[0].x;
+        const dy = pts[pts.length - 1].y - pts[0].y;
+        if (dx * ORIENT_X + dy * ORIENT_Y < 0) pts.reverse();
+
+        streamlines.push({ pts: rdpSimplify(pts, 0.75), type: 'hatch' });
+
+        // Generate normal seeds along this streamline
+        for (let i = 2; i < pts.length - 2; i += Math.max(3, Math.round(dSep / stepSize))) {
+          const tx = pts[i + 1].x - pts[i - 1].x;
+          const ty = pts[i + 1].y - pts[i - 1].y;
+          const len = Math.hypot(tx, ty) || 1;
+          const nx = -ty / len, ny = tx / len;
+          seedQueue.push({ x: pts[i].x + nx * dSep, y: pts[i].y + ny * dSep });
+          seedQueue.push({ x: pts[i].x - nx * dSep, y: pts[i].y - ny * dSep });
+        }
+      }
+      return streamlines;
+    }
+
+    function linearHatch(fillMask, w, h, spacing, angleDeg = 45) {
+      const rad = (angleDeg * Math.PI) / 180;
+      const dx = Math.cos(rad), dy = Math.sin(rad);
+      const nx = -dy, ny = dx;
+      const diag = Math.hypot(w, h);
+      const cx = w / 2, cy = h / 2;
+      const lines = [];
+      for (let offset = -diag / 2; offset <= diag / 2; offset += spacing) {
+        let cur = [];
+        for (let t = -diag / 2; t <= diag / 2; t += 1.5) {
+          const x = cx + nx * offset + dx * t;
+          const y = cy + ny * offset + dy * t;
+          const ix = Math.round(x), iy = Math.round(y);
+          const inside = ix >= 0 && ix < w && iy >= 0 && iy < h && fillMask[iy * w + ix];
+          if (inside) {
+            cur.push({ x, y });
+          } else if (cur.length >= 2) {
+            lines.push({ pts: [cur[0], cur[cur.length - 1]], type: 'hatch' });
+            cur = [];
+          } else {
+            cur = [];
+          }
+        }
+        if (cur.length >= 2) lines.push({ pts: [cur[0], cur[cur.length - 1]], type: 'hatch' });
+      }
+      return lines;
+    }
+
+    function extractOutline(fillMask, w, h) {
+      const edge = new Uint8Array(w * h);
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const i = y * w + x;
+          if (fillMask[i] && (!fillMask[i - 1] || !fillMask[i + 1] || !fillMask[i - w] || !fillMask[i + w])) {
+            edge[i] = 1;
+          }
+        }
+      }
+      return traceSkeletonPolylines(edge, w, h, 2).map(pts => ({ pts: rdpSimplify(pts, 1.0), type: 'hatch' }));
+    }
+
+    // 8. Lightweight Residual Refinement (Soft rasterize & recover missed ink)
+    function residualRefine(polylines, binaryMask, w, h, penWidth) {
+      const simCanvas = document.createElement('canvas');
+      simCanvas.width = w;
+      simCanvas.height = h;
+      const sctx = simCanvas.getContext('2d');
+      sctx.fillStyle = '#000';
+      sctx.fillRect(0, 0, w, h);
+      sctx.strokeStyle = '#fff';
+      sctx.lineWidth = Math.max(1.2, penWidth);
+      sctx.lineCap = 'round';
+      sctx.lineJoin = 'round';
+      for (const poly of polylines) {
+        if (poly.pts.length < 2) continue;
+        sctx.beginPath();
+        sctx.moveTo(poly.pts[0].x, poly.pts[0].y);
+        for (let i = 1; i < poly.pts.length; i++) sctx.lineTo(poly.pts[i].x, poly.pts[i].y);
+        sctx.stroke();
+      }
+      const simData = sctx.getImageData(0, 0, w, h).data;
+      const missed = new Uint8Array(w * h);
+      let missedCount = 0;
+      for (let i = 0; i < w * h; i++) {
+        if (binaryMask[i] && simData[i * 4] < 80) {
+          missed[i] = 1;
+          missedCount++;
+        }
+      }
+      if (missedCount < 15) return [];
+      const missedSkel = zhangSuenThinning(missed, w, h);
+      const extraChains = traceSkeletonPolylines(missedSkel, w, h, 3);
+      return extraChains
+        .map(pts => rdpSimplify(pts, 1.0))
+        .filter(pts => pts.length >= 2)
+        .map(pts => ({ pts, type: 'residual' }));
+    }
+
+    // 9. Greedy Nearest-Neighbor Path Sorting (gcode.py order optimization)
+    function sortPolylinesGreedy(polylines) {
+      if (polylines.length === 0) return [];
+      const remaining = polylines.map(p => ({ pts: p.pts, type: p.type }));
+      const sorted = [];
+      let curX = 0, curY = 0;
+      let drawDist = 0, travelDist = 0;
+
+      while (remaining.length > 0) {
+        let bestIdx = 0;
+        let bestDist = Infinity;
+        let flip = false;
+        for (let i = 0; i < remaining.length; i++) {
+          const pts = remaining[i].pts;
+          const dStart = Math.hypot(pts[0].x - curX, pts[0].y - curY);
+          if (dStart < bestDist) {
+            bestDist = dStart;
+            bestIdx = i;
+            flip = false;
+          }
+          const last = pts[pts.length - 1];
+          const dEnd = Math.hypot(last.x - curX, last.y - curY);
+          if (dEnd < bestDist) {
+            bestDist = dEnd;
+            bestIdx = i;
+            flip = true;
+          }
+        }
+        const chosen = remaining.splice(bestIdx, 1)[0];
+        if (flip) chosen.pts = [...chosen.pts].reverse();
+        travelDist += bestDist;
+        for (let i = 0; i < chosen.pts.length - 1; i++) {
+          drawDist += Math.hypot(chosen.pts[i + 1].x - chosen.pts[i].x, chosen.pts[i + 1].y - chosen.pts[i].y);
+        }
+        const endPt = chosen.pts[chosen.pts.length - 1];
+        curX = endPt.x;
+        curY = endPt.y;
+        sorted.push(chosen);
+      }
+      return { sorted, drawDist, travelDist };
+    }
+
+    // =========================================================================
+    // Main Pipeline Execution
+    // =========================================================================
+    function runPipeline() {
+      const badge = document.getElementById('processing-badge');
+      badge.classList.remove('hidden');
+
+      setTimeout(() => {
+        const params = getParams();
+        // Scale to working dimensions
+        const scale = Math.min(1, MAX_WORK_SIZE / Math.max(sourceCanvas.width, sourceCanvas.height));
+        workW = Math.max(64, Math.round(sourceCanvas.width * scale));
+        workH = Math.max(64, Math.round(sourceCanvas.height * scale));
+        document.getElementById('img-dim-badge').textContent = `${workW} × ${workH}`;
+
+        const tmpC = document.createElement('canvas');
+        tmpC.width = workW;
+        tmpC.height = workH;
+        const tctx = tmpC.getContext('2d');
+        tctx.fillStyle = '#ffffff';
+        tctx.fillRect(0, 0, workW, workH);
+        tctx.drawImage(sourceCanvas, 0, 0, workW, workH);
+        const rgba = tctx.getImageData(0, 0, workW, workH).data;
+
+        grayBuf = new Uint8Array(workW * workH);
+        for (let i = 0; i < workW * workH; i++) {
+          grayBuf[i] = Math.round(0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2]);
+        }
+
+        const thresh = params.autoOtsu ? computeOtsuThreshold(grayBuf) : params.threshold;
+        if (params.autoOtsu) {
+          document.getElementById('val-threshold').textContent = `Auto (${thresh})`;
+          document.getElementById('param-threshold').value = thresh;
+        } else {
+          document.getElementById('val-threshold').textContent = `${thresh}`;
+        }
+
+        binaryMask = new Uint8Array(workW * workH);
+        for (let i = 0; i < grayBuf.length; i++) {
+          const isDark = grayBuf[i] < thresh;
+          binaryMask[i] = params.invert ? (isDark ? 0 : 1) : (isDark ? 1 : 0);
+        }
+
+        // Distance transform & Line/Fill separation
+        distMap = computeEDT(binaryMask, workW, workH);
+        lineMask = new Uint8Array(workW * workH);
+        fillMask = new Uint8Array(workW * workH);
+        const halfFill = params.fillWidth / 2;
+        for (let i = 0; i < binaryMask.length; i++) {
+          if (!binaryMask[i]) continue;
+          if (distMap[i] > halfFill) fillMask[i] = 1;
+          else lineMask[i] = 1;
+        }
+
+        // Skeletonize Line Mask
+        skeletonMask = zhangSuenThinning(lineMask, workW, workH);
+        let rawChains = traceSkeletonPolylines(skeletonMask, workW, workH, params.spur);
+        let linePolys = rawChains
+          .map(pts => gaussianSmooth(pts, params.smooth))
+          .map(pts => rdpSimplify(pts, params.simplify))
+          .filter(pts => pts.length >= 2)
+          .map(pts => ({ pts, type: 'line' }));
+
+        // Multipass
+        let allPolys = [...linePolys];
+        if (params.multipass) {
+          const extraMulti = generateMultipass(linePolys, distMap, workW, workH, params.penWidth);
+          allPolys = allPolys.concat(extraMulti);
+        }
+
+        // Orientation Field & Fill Hatching
+        const field = buildOrientationField(linePolys, workW, workH);
+        orientCos = field.oCos;
+        orientSin = field.oSin;
+
+        if (params.fillMode === 'flow') {
+          allPolys = allPolys.concat(jobardLeferHatch(fillMask, workW, workH, params.hatchSpacing, orientCos, orientSin));
+        } else if (params.fillMode === 'linear') {
+          allPolys = allPolys.concat(linearHatch(fillMask, workW, workH, params.hatchSpacing, 45));
+        } else if (params.fillMode === 'outline') {
+          allPolys = allPolys.concat(extractOutline(fillMask, workW, workH));
+        }
+
+        // Residual pass
+        if (params.residual) {
+          allPolys = allPolys.concat(residualRefine(allPolys, binaryMask, workW, workH, params.penWidth));
+        }
+
+        // Greedy path sorting
+        const sortedRes = sortPolylinesGreedy(allPolys);
+        finalPolylines = sortedRes.sorted || [];
+        let totalPts = 0;
+        for (const p of finalPolylines) totalPts += p.pts.length;
+        drawStats = {
+          strokes: finalPolylines.length,
+          points: totalPts,
+          drawDist: sortedRes.drawDist || 0,
+          travelDist: sortedRes.travelDist || 0
+        };
+
+        document.getElementById('stat-strokes').textContent = drawStats.strokes;
+        document.getElementById('stat-points').textContent = drawStats.points;
+        const totalD = drawStats.drawDist + drawStats.travelDist;
+        const pct = totalD > 0 ? Math.round((drawStats.drawDist / totalD) * 100) : 0;
+        document.getElementById('stat-ratio').textContent = `${pct}% / ${100 - pct}%`;
+
+        restartAnimation();
+        renderDebugCanvas();
+        badge.classList.add('hidden');
+      }, 20);
+    }
+
+    // =========================================================================
+    // p5.js Instance & Simulation State Machine
+    // =========================================================================
+    function getPaperBg(paper) {
+      if (paper === 'white') return '#ffffff';
+      if (paper === 'dark') return '#0c192c';
+      return '#faf6ee';
+    }
+
+    function restartAnimation() {
+      animState = { strokeIdx: 0, ptIdx: 0, done: finalPolylines.length === 0 };
+      isPlaying = true;
+      document.getElementById('play-icon').textContent = '暫停';
+      if (p5Instance) {
+        p5Instance.resizeCanvas(workW, workH);
+        p5Instance.background(getPaperBg(getParams().paper));
+        p5Instance.loop();
+      }
+      updateProgressUI();
+    }
+
+    function updateProgressUI() {
+      const pct = finalPolylines.length === 0 ? 100 : Math.min(100, Math.round((animState.strokeIdx / finalPolylines.length) * 100));
+      document.getElementById('stat-progress').textContent = `${animState.done ? 100 : pct}%`;
+    }
+
+    function initP5() {
+      new p5(p => {
+        p5Instance = p;
+        let lastPaper = '';
+        p.setup = () => {
+          const c = p.createCanvas(workW, workH);
+          c.parent('p5-container');
+          p.pixelDensity(1);
+          p.background(getPaperBg(getParams().paper));
+        };
+
+        p.draw = () => {
+          const params = getParams();
+          if (params.paper !== lastPaper) {
+            lastPaper = params.paper;
+          }
+
+          // Redraw from scratch up to current progress cleanly so travel lines & pen head don't smear
+          p.background(getPaperBg(params.paper));
+
+          // 1. Draw travel lines (optional)
+          if (params.showTravel) {
+            p.push();
+            p.stroke(239, 68, 68, 85);
+            p.strokeWeight(0.8);
+            p.drawingContext.setLineDash([4, 4]);
+            let px = 0, py = 0;
+            const limitS = animState.done ? finalPolylines.length : animState.strokeIdx + 1;
+            for (let s = 0; s < limitS && s < finalPolylines.length; s++) {
+              const pts = finalPolylines[s].pts;
+              if (pts.length > 0) {
+                p.line(px, py, pts[0].x, pts[0].y);
+                const end = pts[pts.length - 1];
+                px = end.x; py = end.y;
+              }
+            }
+            p.drawingContext.setLineDash([]);
+            p.pop();
+          }
+
+          // 2. Draw completed & current strokes
+          p.noFill();
+          p.stroke(params.inkColor);
+          p.strokeWeight(params.penWidth);
+          p.strokeCap(p.ROUND);
+          p.strokeJoin(p.ROUND);
+
+          const completedCount = animState.done ? finalPolylines.length : animState.strokeIdx;
+          for (let s = 0; s < completedCount; s++) {
+            const pts = finalPolylines[s].pts;
+            p.beginShape();
+            for (let i = 0; i < pts.length; i++) p.vertex(pts[i].x, pts[i].y);
+            p.endShape();
+          }
+
+          let headX = 0, headY = 0;
+          if (!animState.done && animState.strokeIdx < finalPolylines.length) {
+            const curPts = finalPolylines[animState.strokeIdx].pts;
+            const endIdx = Math.min(curPts.length - 1, animState.ptIdx);
+            p.beginShape();
+            for (let i = 0; i <= endIdx; i++) p.vertex(curPts[i].x, curPts[i].y);
+            p.endShape();
+            headX = curPts[endIdx].x;
+            headY = curPts[endIdx].y;
+          } else if (finalPolylines.length > 0) {
+            const lastPoly = finalPolylines[finalPolylines.length - 1].pts;
+            headX = lastPoly[lastPoly.length - 1].x;
+            headY = lastPoly[lastPoly.length - 1].y;
+          }
+
+          // 3. Draw virtual pen head
+          if (params.showHead && !animState.done && finalPolylines.length > 0) {
+            p.push();
+            p.stroke(56, 189, 248);
+            p.strokeWeight(1.5);
+            p.noFill();
+            p.circle(headX, headY, 14);
+            p.line(headX - 11, headY, headX + 11, headY);
+            p.line(headX, headY - 11, headX, headY + 11);
+            p.pop();
+          }
+
+          // 4. Advance plotter state
+          if (isPlaying && !animState.done) {
+            let steps = params.speed;
+            while (steps > 0 && !animState.done) {
+              if (animState.strokeIdx >= finalPolylines.length) {
+                animState.done = true;
+                break;
+              }
+              const curPts = finalPolylines[animState.strokeIdx].pts;
+              if (animState.ptIdx < curPts.length - 1) {
+                animState.ptIdx++;
+              } else {
+                animState.strokeIdx++;
+                animState.ptIdx = 0;
+                if (animState.strokeIdx >= finalPolylines.length) {
+                  animState.done = true;
+                }
+              }
+              steps--;
+            }
+            updateProgressUI();
+          }
+        };
+      });
+    }
+
+    // =========================================================================
+    // Debug Views (Source / Line-Fill Separation / Skeleton + Orientation Field)
+    // =========================================================================
+    function renderDebugCanvas() {
+      const dbg = document.getElementById('debug-canvas');
+      if (currentView === 'p5') return;
+      dbg.width = workW;
+      dbg.height = workH;
+      const ctx = dbg.getContext('2d');
+
+      if (currentView === 'source') {
+        ctx.drawImage(sourceCanvas, 0, 0, workW, workH);
+      } else if (currentView === 'mask') {
+        const img = ctx.createImageData(workW, workH);
+        for (let i = 0; i < workW * workH; i++) {
+          const p = i * 4;
+          if (lineMask && lineMask[i]) {
+            img.data[p] = 56; img.data[p + 1] = 189; img.data[p + 2] = 248; img.data[p + 3] = 255; // Cyan = Line
+          } else if (fillMask && fillMask[i]) {
+            img.data[p] = 249; img.data[p + 1] = 115; img.data[p + 2] = 22; img.data[p + 3] = 255; // Orange = Fill
+          } else {
+            img.data[p] = 15; img.data[p + 1] = 23; img.data[p + 2] = 42; img.data[p + 3] = 255;
+          }
+        }
+        ctx.putImageData(img, 0, 0);
+      } else if (currentView === 'skeleton') {
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, workW, workH);
+        // Orientation field vectors
+        if (orientCos && orientSin) {
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+          ctx.lineWidth = 1;
+          for (let y = 8; y < workH; y += 14) {
+            for (let x = 8; x < workW; x += 14) {
+              const i = y * workW + x;
+              const vx = orientCos[i] * 5, vy = orientSin[i] * 5;
+              ctx.beginPath();
+              ctx.moveTo(x - vx, y - vy);
+              ctx.lineTo(x + vx, y + vy);
+              ctx.stroke();
+            }
+          }
+        }
+        // Skeleton pixels
+        if (skeletonMask) {
+          ctx.fillStyle = '#34d399';
+          for (let y = 0; y < workH; y++) {
+            for (let x = 0; x < workW; x++) {
+              if (skeletonMask[y * workW + x]) ctx.fillRect(x, y, 1, 1);
+            }
+          }
+        }
+      }
+    }
+
+    // =========================================================================
+    // Exporters (SVG & Standalone p5.js Sketch)
+    // =========================================================================
+    function generateSVG() {
+      const params = getParams();
+      const paths = finalPolylines.map(poly => {
+        const d = poly.pts.map((pt, i) => `${i === 0 ? 'M' : 'L'}${pt.x.toFixed(2)},${pt.y.toFixed(2)}`).join(' ');
+        return `  <path d="${d}" fill="none" stroke="${params.inkColor}" stroke-width="${params.penWidth}" stroke-linecap="round" stroke-linejoin="round"/>`;
+      }).join('\n');
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${workW} ${workH}" width="${workW}" height="${workH}">\n${paths}\n</svg>`;
+    }
+
+    function generateP5Code() {
+      const params = getParams();
+      const compactPolys = finalPolylines.map(p => p.pts.map(pt => [Number(pt.x.toFixed(1)), Number(pt.y.toFixed(1))]));
+      return `// Generated by Ring-XY-Plotter -> p5.js Converter
+// Strokes: ${finalPolylines.length}, Canvas: ${workW}x${workH}
+const POLYLINES = ${JSON.stringify(compactPolys)};
+
+let sIdx = 0;
+let pIdx = 0;
+const SPEED = ${params.speed}; // points per frame
+
+function setup() {
+  createCanvas(${workW}, ${workH});
+  background('${getPaperBg(params.paper)}');
+  stroke('${params.inkColor}');
+  strokeWeight(${params.penWidth});
+  strokeCap(ROUND);
+  strokeJoin(ROUND);
+  noFill();
+}
+
+function draw() {
+  for (let k = 0; k < SPEED; k++) {
+    if (sIdx >= POLYLINES.length) {
+      noLoop();
+      return;
+    }
+    const pts = POLYLINES[sIdx];
+    if (pIdx < pts.length - 1) {
+      line(pts[pIdx][0], pts[pIdx][1], pts[pIdx + 1][0], pts[pIdx + 1][1]);
+      pIdx++;
+    } else {
+      sIdx++;
+      pIdx = 0;
+    }
+  }
+}`;
+    }
+
+    function downloadTextFile(filename, content, mime) {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // =========================================================================
+    // Event Bindings
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      initP5();
+
+      // Slider readout bindings
+      const rangeBindings = [
+        ['param-threshold', 'val-threshold', v => v],
+        ['param-fill-width', 'val-fill-width', v => `${v} px`],
+        ['param-spur', 'val-spur', v => `${v} px`],
+        ['param-smooth', 'val-smooth', v => v],
+        ['param-simplify', 'val-simplify', v => v],
+        ['param-pen-width', 'val-pen-width', v => `${v} px`],
+        ['param-hatch-spacing', 'val-hatch-spacing', v => `${v} px`],
+        ['param-speed', 'val-speed', v => v]
+      ];
+      for (const [id, labelId, fmt] of rangeBindings) {
+        const el = document.getElementById(id);
+        el.addEventListener('input', () => {
+          document.getElementById(labelId).textContent = fmt(el.value);
+        });
+      }
+
+      document.getElementById('param-auto-otsu').addEventListener('change', e => {
+        document.getElementById('param-threshold').disabled = e.target.checked;
+      });
+
+      document.getElementById('param-fill-mode').addEventListener('change', e => {
+        const showSpacing = e.target.value === 'flow' || e.target.value === 'linear';
+        document.getElementById('hatch-spacing-wrap').classList.toggle('hidden', !showSpacing);
+      });
+
+      document.getElementById('btn-reprocess').addEventListener('click', runPipeline);
+
+      // Sample buttons
+      document.querySelectorAll('.sample-btn').forEach(btn => {
+        btn.addEventListener('click', () => loadSample(btn.dataset.sample));
+      });
+
+      // File upload & drag-and-drop
+      const handleFile = file => {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+          const img = new Image();
+          img.onload = () => {
+            sourceCanvas.width = img.width || 480;
+            sourceCanvas.height = img.height || 480;
+            sourceCtx.fillStyle = '#ffffff';
+            sourceCtx.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+            sourceCtx.drawImage(img, 0, 0);
+            runPipeline();
+            showToast(`已載入：${file.name}`);
+          };
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+      };
+
+      document.getElementById('file-input').addEventListener('change', e => handleFile(e.target.files[0]));
+      const dropZone = document.getElementById('drop-zone');
+      dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('border-sky-400'); });
+      dropZone.addEventListener('dragleave', () => dropZone.classList.remove('border-sky-400'));
+      dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropZone.classList.remove('border-sky-400');
+        handleFile(e.dataTransfer.files[0]);
+      });
+
+      // Playback controls
+      document.getElementById('btn-play-pause').addEventListener('click', () => {
+        if (animState.done) {
+          restartAnimation();
+          return;
+        }
+        isPlaying = !isPlaying;
+        document.getElementById('play-icon').textContent = isPlaying ? '暫停' : '繼續';
+      });
+      document.getElementById('btn-restart').addEventListener('click', restartAnimation);
+      document.getElementById('btn-instant').addEventListener('click', () => {
+        animState.strokeIdx = finalPolylines.length;
+        animState.done = true;
+        isPlaying = false;
+        document.getElementById('play-icon').textContent = '重播';
+        updateProgressUI();
+      });
+
+      // View Tabs
+      document.querySelectorAll('.view-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          currentView = tab.dataset.view;
+          document.querySelectorAll('.view-tab').forEach(t => {
+            t.classList.remove('bg-sky-600', 'text-white');
+            t.classList.add('text-slate-400');
+          });
+          tab.classList.add('bg-sky-600', 'text-white');
+          tab.classList.remove('text-slate-400');
+          const p5El = document.getElementById('p5-container');
+          const dbgEl = document.getElementById('debug-canvas');
+          if (currentView === 'p5') {
+            p5El.classList.remove('hidden');
+            dbgEl.classList.add('hidden');
+          } else {
+            p5El.classList.add('hidden');
+            dbgEl.classList.remove('hidden');
+            renderDebugCanvas();
+          }
+        });
+      });
+
+      // Exports
+      document.getElementById('btn-export-svg').addEventListener('click', () => {
+        downloadTextFile('ring-plotter-lines.svg', generateSVG(), 'image/svg+xml');
+        showToast('已匯出 SVG 向量檔');
+      });
+
+      document.getElementById('btn-export-p5').addEventListener('click', () => {
+        document.getElementById('p5-code-preview').textContent = generateP5Code();
+        document.getElementById('p5-modal').classList.remove('hidden');
+      });
+
+      document.getElementById('btn-close-modal').addEventListener('click', () => {
+        document.getElementById('p5-modal').classList.add('hidden');
+      });
+
+      document.getElementById('btn-copy-p5').addEventListener('click', async () => {
+        const text = document.getElementById('p5-code-preview').textContent;
+        try {
+          await navigator.clipboard.writeText(text);
+          showToast('已複製 p5.js 程式碼');
+        } catch {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+          showToast('已複製 p5.js 程式碼');
+        }
+      });
+
+      document.getElementById('btn-download-p5').addEventListener('click', () => {
+        downloadTextFile('sketch.js', generateP5Code(), 'text/javascript');
+        showToast('已下載 sketch.js');
+      });
+
+      // Load initial sample
+      loadSample('manga');
+    });
+  </script>
+</body>
+</html>
