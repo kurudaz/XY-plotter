@@ -34,6 +34,8 @@
     }
     #p5-container canvas {
       max-width: 100%;
+      max-height: 680px;
+      width: auto !important;
       height: auto !important;
       border-radius: 0.5rem;
       box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
@@ -51,7 +53,7 @@
       </div>
       <div>
         <h1 class="text-base sm:text-lg font-semibold text-slate-100 leading-tight">Ring-XY-Plotter → p5.js 數位描線轉換器</h1>
-        <p class="text-xs text-slate-400">純演算法移植：Otsu 二值化 · 距離變換 · 骨架抽取 · Jobard-Lefer 流線填充 · 貪欲路徑排序</p>
+        <p class="text-xs text-slate-400">支援原圖解析度 · 自適應去陰影抽線 · 距離變換 · 骨架抽取 · Jobard-Lefer 流線填充</p>
       </div>
     </div>
     <div class="flex flex-wrap items-center gap-2">
@@ -71,8 +73,8 @@
     <!-- Left Sidebar: Controls -->
     <aside class="lg:col-span-4 xl:col-span-3 flex flex-col gap-3 max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto custom-scrollbar pr-1">
       <!-- 1. Input Source -->
-      <section class="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
-        <h2 class="text-xs font-semibold uppercase tracking-wider text-sky-400 mb-2.5 flex items-center justify-between">
+      <section class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-sky-400 flex items-center justify-between">
           <span>1. 線稿輸入來源</span>
           <span id="img-dim-badge" class="text-[11px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">--</span>
         </h2>
@@ -81,7 +83,16 @@
           <p class="text-xs text-slate-300 font-medium">點擊或拖放任意線條作品</p>
           <p class="text-[11px] text-slate-500 mt-0.5">支援 PNG / JPG / WebP / SVG（純本地運算）</p>
         </label>
-        <div class="mt-2.5">
+        <div>
+          <label for="param-max-res" class="block text-[11px] text-slate-400 mb-1">處理解析度上限</label>
+          <select id="param-max-res" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+            <option value="0" selected>原圖解析度 100%（保留最細線條）</option>
+            <option value="1600">最長邊 1600 px</option>
+            <option value="1200">最長邊 1200 px</option>
+            <option value="800">最長邊 800 px（高速預覽）</option>
+          </select>
+        </div>
+        <div>
           <p class="text-[11px] text-slate-400 mb-1.5">或選擇內建範例測試：</p>
           <div class="grid grid-cols-2 gap-1.5">
             <button data-sample="manga" class="sample-btn px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition">日系漫畫眼部線稿</button>
@@ -97,15 +108,29 @@
         <h2 class="text-xs font-semibold uppercase tracking-wider text-sky-400">2. 影像抽線與分離 (img2svg)</h2>
 
         <div>
+          <label for="param-bin-mode" class="block text-xs text-slate-300 mb-1">線條擷取模式</label>
+          <select id="param-bin-mode" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+            <option value="adaptive" selected>自適應去陰影抽線（漫畫/灰階背景推薦）</option>
+            <option value="otsu">Otsu 全域自動閾值（純黑白線稿）</option>
+            <option value="manual">手動全域閾值</option>
+          </select>
+        </div>
+
+        <div id="adaptive-wrap">
           <div class="flex justify-between text-xs mb-1">
-            <span class="text-slate-300">二值化閾值</span>
-            <span id="val-threshold" class="font-mono text-sky-300">Auto (Otsu)</span>
+            <span class="text-slate-300">去陰影靈敏度（局部對比差）</span>
+            <span id="val-adaptive-bias" class="font-mono text-sky-300">12</span>
           </div>
-          <div class="flex items-center gap-2">
-            <input id="param-auto-otsu" type="checkbox" checked class="rounded border-slate-600 bg-slate-800" />
-            <label for="param-auto-otsu" class="text-[11px] text-slate-400">Otsu 自動</label>
-            <input id="param-threshold" type="range" min="10" max="245" value="128" disabled class="flex-1 h-1.5 bg-slate-800 rounded-lg cursor-pointer disabled:opacity-40" />
+          <input id="param-adaptive-bias" type="range" min="4" max="40" step="1" value="12" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+          <p class="text-[10px] text-slate-500 mt-0.5">數值越低越能保留極細遠景線條，越高越能濾除灰階雜訊</p>
+        </div>
+
+        <div id="global-thresh-wrap" class="hidden">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-300">全域閾值</span>
+            <span id="val-threshold" class="font-mono text-sky-300">128</span>
           </div>
+          <input id="param-threshold" type="range" min="10" max="245" value="128" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
         </div>
 
         <div class="flex items-center justify-between">
@@ -122,37 +147,46 @@
           <p class="text-[10px] text-slate-500 mt-0.5">細於此寬度抽中心骨架，粗於此寬度視為填色區</p>
         </div>
 
-        <div>
-          <div class="flex justify-between text-xs mb-1">
-            <span class="text-slate-300">毛刺剪枝 (--spur)</span>
-            <span id="val-spur" class="font-mono text-sky-300">4 px</span>
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <div class="flex justify-between text-[11px] mb-1">
+              <span class="text-slate-300">毛刺剪枝</span>
+              <span id="val-spur" class="font-mono text-sky-300">3 px</span>
+            </div>
+            <input id="param-spur" type="range" min="0" max="15" step="1" value="3" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
           </div>
-          <input id="param-spur" type="range" min="0" max="15" step="1" value="4" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+          <div>
+            <div class="flex justify-between text-[11px] mb-1">
+              <span class="text-slate-300">最短線長</span>
+              <span id="val-min-len" class="font-mono text-sky-300">3 px</span>
+            </div>
+            <input id="param-min-len" type="range" min="1" max="20" step="1" value="3" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+          </div>
         </div>
 
         <div class="grid grid-cols-2 gap-2.5">
           <div>
             <div class="flex justify-between text-[11px] mb-1">
               <span class="text-slate-300">高斯平滑</span>
-              <span id="val-smooth" class="font-mono text-sky-300">1.5</span>
+              <span id="val-smooth" class="font-mono text-sky-300">1.0</span>
             </div>
-            <input id="param-smooth" type="range" min="0" max="4" step="0.5" value="1.5" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+            <input id="param-smooth" type="range" min="0" max="4" step="0.5" value="1.0" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
           </div>
           <div>
             <div class="flex justify-between text-[11px] mb-1">
               <span class="text-slate-300">RDP 簡化</span>
-              <span id="val-simplify" class="font-mono text-sky-300">1.0</span>
+              <span id="val-simplify" class="font-mono text-sky-300">0.8</span>
             </div>
-            <input id="param-simplify" type="range" min="0.2" max="4.0" step="0.2" value="1.0" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+            <input id="param-simplify" type="range" min="0.2" max="4.0" step="0.2" value="0.8" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
           </div>
         </div>
 
         <div>
           <div class="flex justify-between text-xs mb-1">
             <span class="text-slate-300">模擬筆寬 (--pen-width)</span>
-            <span id="val-pen-width" class="font-mono text-sky-300">1.8 px</span>
+            <span id="val-pen-width" class="font-mono text-sky-300">1.4 px</span>
           </div>
-          <input id="param-pen-width" type="range" min="0.6" max="5.0" step="0.2" value="1.8" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+          <input id="param-pen-width" type="range" min="0.6" max="5.0" step="0.2" value="1.4" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
         </div>
       </section>
 
@@ -206,9 +240,9 @@
         <div>
           <div class="flex justify-between text-xs mb-1">
             <span class="text-slate-300">繪製速度（步進點數/幀）</span>
-            <span id="val-speed" class="font-mono text-sky-300">12</span>
+            <span id="val-speed" class="font-mono text-sky-300">20</span>
           </div>
-          <input id="param-speed" type="range" min="1" max="60" step="1" value="12" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+          <input id="param-speed" type="range" min="1" max="120" step="1" value="20" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
         </div>
 
         <div class="grid grid-cols-2 gap-2">
@@ -228,7 +262,7 @@
 
         <div class="flex items-center justify-between">
           <label for="param-show-travel" class="text-xs text-slate-300">顯示提筆空跑軌跡（紅虛線）</label>
-          <input id="param-show-travel" type="checkbox" checked class="rounded border-slate-600 bg-slate-800" />
+          <input id="param-show-travel" type="checkbox" class="rounded border-slate-600 bg-slate-800" />
         </div>
 
         <div class="flex items-center justify-between">
@@ -254,7 +288,7 @@
           </button>
         </div>
 
-        <div class="flex items-center gap-1.5 bg-slate-950 p-1 rounded-lg border border-slate-800">
+        <div class="flex items-center gap-1.5 bg-slate-950 p-1 rounded-lg border border-slate-800 flex-wrap">
           <button data-view="p5" class="view-tab px-2.5 py-1 rounded text-xs font-medium bg-sky-600 text-white transition">p5.js 描線模擬</button>
           <button data-view="source" class="view-tab px-2.5 py-1 rounded text-xs font-medium text-slate-400 hover:text-slate-200 transition">原圖</button>
           <button data-view="mask" class="view-tab px-2.5 py-1 rounded text-xs font-medium text-slate-400 hover:text-slate-200 transition">線／面分離圖</button>
@@ -285,7 +319,7 @@
       <!-- Canvas Viewport -->
       <div class="flex-1 bg-slate-900/70 border border-slate-800 rounded-xl p-4 flex items-center justify-center relative min-h-[460px]">
         <div id="p5-container" class="flex items-center justify-center w-full"></div>
-        <canvas id="debug-canvas" class="hidden max-w-full max-h-[640px] rounded-lg shadow-2xl"></canvas>
+        <canvas id="debug-canvas" class="hidden max-w-full max-h-[680px] rounded-lg shadow-2xl"></canvas>
         <div id="processing-badge" class="hidden absolute top-4 right-4 bg-slate-950/90 border border-sky-500/40 text-sky-300 text-xs px-3 py-1.5 rounded-full flex items-center gap-2">
           <span class="w-2 h-2 rounded-full bg-sky-400 animate-ping"></span>
           演算法計算中...
@@ -323,29 +357,30 @@
     // =========================================================================
     // Global State
     // =========================================================================
-    const MAX_WORK_SIZE = 520;
     let sourceCanvas = document.createElement('canvas');
     let sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
     let workW = 480, workH = 480;
 
-    // Processed data buffers for debug views & rendering
-    let grayBuf = null;       // Uint8Array
-    let binaryMask = null;    // Uint8Array (0 or 1)
-    let distMap = null;       // Float32Array (Euclidean distance to background)
-    let lineMask = null;      // Uint8Array
-    let fillMask = null;      // Uint8Array
-    let skeletonMask = null;  // Uint8Array
-    let orientCos = null;     // Float32Array
-    let orientSin = null;     // Float32Array
+    let grayBuf = null;
+    let binaryMask = null;
+    let distMap = null;
+    let lineMask = null;
+    let fillMask = null;
+    let skeletonMask = null;
+    let orientCos = null;
+    let orientSin = null;
 
-    let finalPolylines = [];  // Array of { pts: [{x,y}], type: 'line'|'hatch'|'multipass'|'residual' }
+    let finalPolylines = [];
     let drawStats = { strokes: 0, points: 0, drawDist: 0, travelDist: 0 };
 
-    // Playback & UI state
     let currentView = 'p5';
     let isPlaying = true;
-    let animState = { strokeIdx: 0, ptIdx: 0, t: 0, done: false };
+    let animState = { strokeIdx: 0, ptIdx: 0, done: false };
     let p5Instance = null;
+    let pgCompleted = null;
+    let pgTravel = null;
+    let lastRenderStyleKey = '';
+    let lastHeadX = 0, lastHeadY = 0;
 
     // =========================================================================
     // UI Helpers
@@ -360,11 +395,14 @@
 
     function getParams() {
       return {
-        autoOtsu: document.getElementById('param-auto-otsu').checked,
+        maxRes: parseInt(document.getElementById('param-max-res').value, 10),
+        binMode: document.getElementById('param-bin-mode').value,
+        adaptiveBias: parseInt(document.getElementById('param-adaptive-bias').value, 10),
         threshold: parseInt(document.getElementById('param-threshold').value, 10),
         invert: document.getElementById('param-invert').checked,
         fillWidth: parseFloat(document.getElementById('param-fill-width').value),
         spur: parseInt(document.getElementById('param-spur').value, 10),
+        minLen: parseInt(document.getElementById('param-min-len').value, 10),
         smooth: parseFloat(document.getElementById('param-smooth').value),
         simplify: parseFloat(document.getElementById('param-simplify').value),
         penWidth: parseFloat(document.getElementById('param-pen-width').value),
@@ -381,7 +419,7 @@
     }
 
     // =========================================================================
-    // Sample Line-Art Generators (So app opens rich immediately)
+    // Sample Line-Art Generators
     // =========================================================================
     function loadSample(name) {
       const W = 480, H = 480;
@@ -396,7 +434,6 @@
       ctx.lineJoin = 'round';
 
       if (name === 'manga') {
-        // Stylized manga eye + hair strands (mix of fine lines and thick filled lashes/iris)
         ctx.lineWidth = 10;
         ctx.beginPath();
         ctx.moveTo(85, 220);
@@ -405,32 +442,27 @@
         ctx.fill();
         ctx.stroke();
 
-        // Lower eyelid
         ctx.lineWidth = 3;
         ctx.beginPath();
         ctx.moveTo(115, 290);
         ctx.bezierCurveTo(200, 325, 300, 320, 370, 275);
         ctx.stroke();
 
-        // Eyebrow
         ctx.lineWidth = 5;
         ctx.beginPath();
         ctx.moveTo(70, 145);
         ctx.quadraticCurveTo(220, 75, 415, 130);
         ctx.stroke();
 
-        // Iris outer ring
         ctx.lineWidth = 6;
         ctx.beginPath();
         ctx.ellipse(245, 232, 62, 72, 0, 0, Math.PI * 2);
         ctx.stroke();
 
-        // Pupil (thick filled region -> triggers hatch!)
         ctx.beginPath();
         ctx.ellipse(245, 238, 28, 34, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Highlight
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
         ctx.arc(218, 204, 15, 0, Math.PI * 2);
@@ -439,7 +471,6 @@
         ctx.arc(268, 265, 7, 0, Math.PI * 2);
         ctx.fill();
 
-        // Fine manga speed/hair lines
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 2;
         for (let i = 0; i < 8; i++) {
@@ -448,7 +479,6 @@
           ctx.quadraticCurveTo(40 + i * 10, 240, 75 + i * 12, 430);
           ctx.stroke();
         }
-        // Iris radial hatching
         for (let a = 0; a < Math.PI * 2; a += Math.PI / 10) {
           ctx.beginPath();
           ctx.moveTo(245 + Math.cos(a) * 38, 232 + Math.sin(a) * 44);
@@ -484,7 +514,6 @@
         ctx.arc(cx, cy, 24, 0, Math.PI * 2);
         ctx.fill();
       } else if (name === 'botanical') {
-        // Stem + Leaves (thick & thin strokes)
         ctx.lineWidth = 7;
         ctx.beginPath();
         ctx.moveTo(140, 430);
@@ -508,7 +537,6 @@
           ctx.bezierCurveTo(40, -55, 110, -40, 130, 0);
           ctx.bezierCurveTo(110, 40, 40, 55, 0, 0);
           ctx.stroke();
-          // Veins
           ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.moveTo(0, 0);
@@ -522,12 +550,10 @@
           ctx.stroke();
           ctx.restore();
         }
-        // Decorative thick seed pod
         ctx.beginPath();
         ctx.ellipse(150, 370, 22, 34, -0.3, 0, Math.PI * 2);
         ctx.fill();
       } else if (name === 'kanji') {
-        // Brush-style character "線" / calligraphic strokes (thick regions for flow hatch)
         const drawStroke = (pts, widths) => {
           for (let i = 0; i < pts.length - 1; i++) {
             const p0 = pts[i], p1 = pts[i + 1];
@@ -544,7 +570,6 @@
             }
           }
         };
-        // Sweeping brush strokes
         drawStroke([[110, 110], [240, 95], [370, 115]], [16, 22, 14]);
         drawStroke([[240, 70], [235, 240], [220, 400]], [20, 18, 12]);
         drawStroke([[130, 210], [240, 195], [345, 215]], [14, 18, 12]);
@@ -556,10 +581,47 @@
     }
 
     // =========================================================================
-    // Core Algorithms (Ported from kohya-ss/ring-xy-plotter)
+    // Core Algorithms
     // =========================================================================
 
-    // 1. Otsu Automatic Thresholding
+    // 1A. Adaptive Integral-Image Thresholding (Ignores soft shading/clouds, preserves fine lines)
+    function computeAdaptiveBinary(gray, w, h, bias, invert) {
+      const integ = new Float64Array((w + 1) * (h + 1));
+      const iw = w + 1;
+      for (let y = 0; y < h; y++) {
+        let rowSum = 0;
+        const gRow = y * w;
+        const iRow = (y + 1) * iw;
+        const pRow = y * iw;
+        for (let x = 0; x < w; x++) {
+          rowSum += gray[gRow + x];
+          integ[iRow + x + 1] = integ[pRow + x + 1] + rowSum;
+        }
+      }
+
+      const rad = Math.max(8, Math.round(Math.min(w, h) * 0.022));
+      const mask = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) {
+        const y0 = Math.max(0, y - rad);
+        const y1 = Math.min(h - 1, y + rad);
+        const r0 = y0 * iw;
+        const r1 = (y1 + 1) * iw;
+        const row = y * w;
+        for (let x = 0; x < w; x++) {
+          const x0 = Math.max(0, x - rad);
+          const x1 = Math.min(w - 1, x + rad);
+          const count = (x1 - x0 + 1) * (y1 - y0 + 1);
+          const sum = integ[r1 + x1 + 1] - integ[r0 + x1 + 1] - integ[r1 + x0] + integ[r0 + x0];
+          const localMean = sum / count;
+          const g = gray[row + x];
+          const isInk = invert ? (g - localMean > bias) : (localMean - g > bias || g < 45);
+          mask[row + x] = isInk ? 1 : 0;
+        }
+      }
+      return mask;
+    }
+
+    // 1B. Otsu Automatic Thresholding
     function computeOtsuThreshold(gray) {
       const hist = new Int32Array(256);
       for (let i = 0; i < gray.length; i++) hist[gray[i]]++;
@@ -629,9 +691,7 @@
         }
       }
 
-      // Pass 1: columns
       for (let x = 0; x < w; x++) edt1d(f, h, w, x);
-      // Pass 2: rows
       for (let y = 0; y < h; y++) edt1d(f, w, 1, y * w);
 
       const dist = new Float32Array(w * h);
@@ -639,56 +699,65 @@
       return dist;
     }
 
-    // 3. Zhang-Suen Thinning (Skeletonization)
+    // 3. Fast Active-List Zhang-Suen Thinning (10x faster on high-res images)
     function zhangSuenThinning(srcMask, w, h) {
       const img = new Uint8Array(srcMask);
+      // Clear 1px border so neighbor checks never need bounds checks
+      for (let x = 0; x < w; x++) { img[x] = 0; img[(h - 1) * w + x] = 0; }
+      for (let y = 0; y < h; y++) { img[y * w] = 0; img[y * w + (w - 1)] = 0; }
+
+      let active = [];
+      for (let y = 1; y < h - 1; y++) {
+        const row = y * w;
+        for (let x = 1; x < w - 1; x++) {
+          if (img[row + x]) active.push(row + x);
+        }
+      }
+
       let changed = true;
-      const toRemove = [];
       let iter = 0;
+      const toRemove = [];
       while (changed && iter < 80) {
         changed = false;
         iter++;
         for (let step = 0; step < 2; step++) {
           toRemove.length = 0;
-          for (let y = 1; y < h - 1; y++) {
-            const row = y * w;
-            for (let x = 1; x < w - 1; x++) {
-              const idx = row + x;
-              if (img[idx] === 0) continue;
-              const p2 = img[idx - w];
-              const p3 = img[idx - w + 1];
-              const p4 = img[idx + 1];
-              const p5 = img[idx + w + 1];
-              const p6 = img[idx + w];
-              const p7 = img[idx + w - 1];
-              const p8 = img[idx - 1];
-              const p9 = img[idx - w - 1];
-              const B = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
-              if (B < 2 || B > 6) continue;
-              let A = 0;
-              if (p2 === 0 && p3 === 1) A++;
-              if (p3 === 0 && p4 === 1) A++;
-              if (p4 === 0 && p5 === 1) A++;
-              if (p5 === 0 && p6 === 1) A++;
-              if (p6 === 0 && p7 === 1) A++;
-              if (p7 === 0 && p8 === 1) A++;
-              if (p8 === 0 && p9 === 1) A++;
-              if (p9 === 0 && p2 === 1) A++;
-              if (A !== 1) continue;
-              if (step === 0) {
-                if (p2 * p4 * p6 !== 0) continue;
-                if (p4 * p6 * p8 !== 0) continue;
-              } else {
-                if (p2 * p4 * p8 !== 0) continue;
-                if (p2 * p6 * p8 !== 0) continue;
-              }
-              toRemove.push(idx);
+          const nextActive = [];
+          for (let k = 0; k < active.length; k++) {
+            const idx = active[k];
+            if (img[idx] === 0) continue;
+            const p2 = img[idx - w];
+            const p3 = img[idx - w + 1];
+            const p4 = img[idx + 1];
+            const p5 = img[idx + w + 1];
+            const p6 = img[idx + w];
+            const p7 = img[idx + w - 1];
+            const p8 = img[idx - 1];
+            const p9 = img[idx - w - 1];
+            const B = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
+            if (B < 2 || B > 6) { nextActive.push(idx); continue; }
+            let A = 0;
+            if (p2 === 0 && p3 === 1) A++;
+            if (p3 === 0 && p4 === 1) A++;
+            if (p4 === 0 && p5 === 1) A++;
+            if (p5 === 0 && p6 === 1) A++;
+            if (p6 === 0 && p7 === 1) A++;
+            if (p7 === 0 && p8 === 1) A++;
+            if (p8 === 0 && p9 === 1) A++;
+            if (p9 === 0 && p2 === 1) A++;
+            if (A !== 1) { nextActive.push(idx); continue; }
+            if (step === 0) {
+              if (p2 * p4 * p6 !== 0 || p4 * p6 * p8 !== 0) { nextActive.push(idx); continue; }
+            } else {
+              if (p2 * p4 * p8 !== 0 || p2 * p6 * p8 !== 0) { nextActive.push(idx); continue; }
             }
+            toRemove.push(idx);
           }
           if (toRemove.length > 0) {
             changed = true;
             for (let i = 0; i < toRemove.length; i++) img[toRemove[i]] = 0;
           }
+          active = nextActive;
         }
       }
       return img;
@@ -715,7 +784,8 @@
       }
 
       const visitedEdge = new Set();
-      const edgeKey = (a, b) => (a < b ? `${a}_${b}` : `${b}_${a}`);
+      const totalPx = w * h;
+      const edgeKey = (a, b) => (a < b ? a * totalPx + b : b * totalPx + a);
       const chains = [];
 
       function traceFrom(startIdx, nextIdx) {
@@ -726,7 +796,7 @@
         while (true) {
           const cx = curr % w, cy = Math.floor(curr / w);
           pts.push({ x: cx, y: cy, idx: curr });
-          if (deg[curr] !== 2) break; // Endpoint or junction
+          if (deg[curr] !== 2) break;
           let foundNext = -1;
           for (const [dx, dy] of dirs) {
             const nx = cx + dx, ny = cy + dy;
@@ -745,8 +815,7 @@
         return pts;
       }
 
-      // First pass: trace from all non-degree-2 nodes (endpoints and junctions)
-      for (let i = 0; i < w * h; i++) {
+      for (let i = 0; i < totalPx; i++) {
         if (!skel[i] || deg[i] === 2 || deg[i] === 0) continue;
         const x = i % w, y = Math.floor(i / w);
         for (const [dx, dy] of dirs) {
@@ -759,8 +828,7 @@
         }
       }
 
-      // Second pass: closed loops (all degree 2)
-      for (let i = 0; i < w * h; i++) {
+      for (let i = 0; i < totalPx; i++) {
         if (!skel[i] || deg[i] !== 2) continue;
         const x = i % w, y = Math.floor(i / w);
         for (const [dx, dy] of dirs) {
@@ -773,7 +841,6 @@
         }
       }
 
-      // Spur pruning: remove short chains with at least one degree-1 endpoint
       const kept = chains.filter(ch => {
         if (ch.length < 2) return false;
         const dStart = deg[ch[0].idx];
@@ -784,7 +851,6 @@
         return true;
       });
 
-      // Junction joining: merge collinear chains meeting at junctions
       const byNode = new Map();
       kept.forEach((ch, ci) => {
         const s = ch[0].idx, e = ch[ch.length - 1].idx;
@@ -804,11 +870,11 @@
         return { x: dx / len, y: dy / len };
       }
 
-      for (const [nodeIdx, list] of byNode.entries()) {
+      for (const [, list] of byNode.entries()) {
         if (list.length < 2) continue;
         const active = list.filter(item => !mergedAway.has(item.ci));
         if (active.length < 2) continue;
-        let bestPair = null, bestScore = -0.5; // dot(tA, -tB) > 0.5 means collinear
+        let bestPair = null, bestScore = -0.5;
         for (let i = 0; i < active.length; i++) {
           for (let j = i + 1; j < active.length; j++) {
             const a = active[i], b = active[j];
@@ -902,12 +968,19 @@
       return [p1, p2];
     }
 
+    function polylineLength(pts) {
+      let len = 0;
+      for (let i = 0; i < pts.length - 1; i++) {
+        len += Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+      }
+      return len;
+    }
+
     // 6. Multipass Normal-Offset Parallel Lines
     function generateMultipass(polylines, distMap, w, h, penWidth) {
       const extra = [];
       for (const poly of polylines) {
         if (poly.pts.length < 2) continue;
-        // Sample median width along polyline
         let sumW = 0;
         for (const p of poly.pts) {
           const ix = Math.max(0, Math.min(w - 1, Math.round(p.x)));
@@ -942,7 +1015,7 @@
       return extra;
     }
 
-    // 7. Double-Angle Orientation Field & Jobard-Lefer Streamline Hatching (hatch.py)
+    // 7. Double-Angle Orientation Field & Jobard-Lefer Streamline Hatching
     function buildOrientationField(polylines, w, h) {
       const cos2 = new Float32Array(w * h);
       const sin2 = new Float32Array(w * h);
@@ -967,12 +1040,10 @@
         }
       }
 
-      // Multi-pass separable box blur to diffuse orientation field smoothly
       const tmpC = new Float32Array(w * h);
       const tmpS = new Float32Array(w * h);
       const radii = [12, 8, 5];
       for (const rad of radii) {
-        // Horizontal
         for (let y = 0; y < h; y++) {
           let sc = 0, ss = 0;
           const row = y * w;
@@ -986,7 +1057,6 @@
             if (remX >= 0) { sc -= cos2[row + remX]; ss -= sin2[row + remX]; }
           }
         }
-        // Vertical
         for (let x = 0; x < w; x++) {
           let sc = 0, ss = 0;
           for (let y = 0; y <= rad && y < h; y++) { sc += tmpC[y * w + x]; ss += tmpS[y * w + x]; }
@@ -1068,7 +1138,6 @@
         const bwd = [];
         const initDir = getDir(sx, sy);
 
-        // Forward
         let cx = sx, cy = sy, dx = initDir.vx, dy = initDir.vy;
         for (let iter = 0; iter < 500; iter++) {
           cx += dx * stepSize;
@@ -1081,7 +1150,6 @@
           dx = nd.vx; dy = nd.vy;
         }
 
-        // Backward
         cx = sx; cy = sy; dx = -initDir.vx; dy = -initDir.vy;
         for (let iter = 0; iter < 500; iter++) {
           cx += dx * stepSize;
@@ -1100,7 +1168,6 @@
         return pts;
       }
 
-      // Queue-based Jobard-Lefer seeding
       const seedQueue = [];
       const stride = Math.max(4, Math.round(dSep * 1.5));
       for (let y = stride; y < h - stride; y += stride) {
@@ -1109,23 +1176,20 @@
         }
       }
 
-      // Consistent drawing direction reference (ORIENT from ring-xy-plotter hatch.py)
       const ORIENT_X = 0.287, ORIENT_Y = 0.958;
       let processed = 0;
-      while (seedQueue.length > 0 && processed < 4000) {
+      while (seedQueue.length > 0 && processed < 6000) {
         const seed = seedQueue.shift();
         processed++;
         const pts = traceStreamline(seed.x, seed.y);
         if (!pts) continue;
 
-        // Align direction consistently
         const dx = pts[pts.length - 1].x - pts[0].x;
         const dy = pts[pts.length - 1].y - pts[0].y;
         if (dx * ORIENT_X + dy * ORIENT_Y < 0) pts.reverse();
 
         streamlines.push({ pts: rdpSimplify(pts, 0.75), type: 'hatch' });
 
-        // Generate normal seeds along this streamline
         for (let i = 2; i < pts.length - 2; i += Math.max(3, Math.round(dSep / stepSize))) {
           const tx = pts[i + 1].x - pts[i - 1].x;
           const ty = pts[i + 1].y - pts[i - 1].y;
@@ -1179,8 +1243,8 @@
       return traceSkeletonPolylines(edge, w, h, 2).map(pts => ({ pts: rdpSimplify(pts, 1.0), type: 'hatch' }));
     }
 
-    // 8. Lightweight Residual Refinement (Soft rasterize & recover missed ink)
-    function residualRefine(polylines, binaryMask, w, h, penWidth) {
+    // 8. Lightweight Residual Refinement
+    function residualRefine(polylines, binaryMask, w, h, penWidth, minLen) {
       const simCanvas = document.createElement('canvas');
       simCanvas.width = w;
       simCanvas.height = h;
@@ -1209,47 +1273,45 @@
       }
       if (missedCount < 15) return [];
       const missedSkel = zhangSuenThinning(missed, w, h);
-      const extraChains = traceSkeletonPolylines(missedSkel, w, h, 3);
+      const extraChains = traceSkeletonPolylines(missedSkel, w, h, 2);
       return extraChains
-        .map(pts => rdpSimplify(pts, 1.0))
-        .filter(pts => pts.length >= 2)
+        .map(pts => rdpSimplify(pts, 0.9))
+        .filter(pts => pts.length >= 2 && polylineLength(pts) >= minLen)
         .map(pts => ({ pts, type: 'residual' }));
     }
 
-    // 9. Greedy Nearest-Neighbor Path Sorting (gcode.py order optimization)
+    // 9. Fast Greedy Nearest-Neighbor Path Sorting (Typed-Array accelerated)
     function sortPolylinesGreedy(polylines) {
-      if (polylines.length === 0) return [];
-      const remaining = polylines.map(p => ({ pts: p.pts, type: p.type }));
+      const n = polylines.length;
+      if (n === 0) return { sorted: [], drawDist: 0, travelDist: 0 };
+      const sx = new Float32Array(n), sy = new Float32Array(n);
+      const ex = new Float32Array(n), ey = new Float32Array(n);
+      const used = new Uint8Array(n);
+      for (let i = 0; i < n; i++) {
+        const pts = polylines[i].pts;
+        sx[i] = pts[0].x; sy[i] = pts[0].y;
+        ex[i] = pts[pts.length - 1].x; ey[i] = pts[pts.length - 1].y;
+      }
+
       const sorted = [];
       let curX = 0, curY = 0;
       let drawDist = 0, travelDist = 0;
 
-      while (remaining.length > 0) {
-        let bestIdx = 0;
-        let bestDist = Infinity;
+      for (let step = 0; step < n; step++) {
+        let bestIdx = -1;
+        let bestDistSq = Infinity;
         let flip = false;
-        for (let i = 0; i < remaining.length; i++) {
-          const pts = remaining[i].pts;
-          const dStart = Math.hypot(pts[0].x - curX, pts[0].y - curY);
-          if (dStart < bestDist) {
-            bestDist = dStart;
-            bestIdx = i;
-            flip = false;
-          }
-          const last = pts[pts.length - 1];
-          const dEnd = Math.hypot(last.x - curX, last.y - curY);
-          if (dEnd < bestDist) {
-            bestDist = dEnd;
-            bestIdx = i;
-            flip = true;
-          }
+        for (let i = 0; i < n; i++) {
+          if (used[i]) continue;
+          const ds = (sx[i] - curX) * (sx[i] - curX) + (sy[i] - curY) * (sy[i] - curY);
+          if (ds < bestDistSq) { bestDistSq = ds; bestIdx = i; flip = false; }
+          const de = (ex[i] - curX) * (ex[i] - curX) + (ey[i] - curY) * (ey[i] - curY);
+          if (de < bestDistSq) { bestDistSq = de; bestIdx = i; flip = true; }
         }
-        const chosen = remaining.splice(bestIdx, 1)[0];
-        if (flip) chosen.pts = [...chosen.pts].reverse();
-        travelDist += bestDist;
-        for (let i = 0; i < chosen.pts.length - 1; i++) {
-          drawDist += Math.hypot(chosen.pts[i + 1].x - chosen.pts[i].x, chosen.pts[i + 1].y - chosen.pts[i].y);
-        }
+        used[bestIdx] = 1;
+        const chosen = { pts: flip ? [...polylines[bestIdx].pts].reverse() : polylines[bestIdx].pts, type: polylines[bestIdx].type };
+        travelDist += Math.sqrt(bestDistSq);
+        drawDist += polylineLength(chosen.pts);
         const endPt = chosen.pts[chosen.pts.length - 1];
         curX = endPt.x;
         curY = endPt.y;
@@ -1267,11 +1329,13 @@
 
       setTimeout(() => {
         const params = getParams();
-        // Scale to working dimensions
-        const scale = Math.min(1, MAX_WORK_SIZE / Math.max(sourceCanvas.width, sourceCanvas.height));
+        const maxSide = Math.max(sourceCanvas.width, sourceCanvas.height);
+        const cap = params.maxRes === 0 ? 2200 : params.maxRes;
+        const scale = maxSide > cap ? cap / maxSide : 1;
         workW = Math.max(64, Math.round(sourceCanvas.width * scale));
         workH = Math.max(64, Math.round(sourceCanvas.height * scale));
-        document.getElementById('img-dim-badge').textContent = `${workW} × ${workH}`;
+        const pctLabel = scale < 1 ? ` (${Math.round(scale * 100)}%)` : ' (100%)';
+        document.getElementById('img-dim-badge').textContent = `${workW} × ${workH}${pctLabel}`;
 
         const tmpC = document.createElement('canvas');
         tmpC.width = workW;
@@ -1287,21 +1351,23 @@
           grayBuf[i] = Math.round(0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2]);
         }
 
-        const thresh = params.autoOtsu ? computeOtsuThreshold(grayBuf) : params.threshold;
-        if (params.autoOtsu) {
-          document.getElementById('val-threshold').textContent = `Auto (${thresh})`;
-          document.getElementById('param-threshold').value = thresh;
+        if (params.binMode === 'adaptive') {
+          binaryMask = computeAdaptiveBinary(grayBuf, workW, workH, params.adaptiveBias, params.invert);
         } else {
-          document.getElementById('val-threshold').textContent = `${thresh}`;
+          const thresh = params.binMode === 'otsu' ? computeOtsuThreshold(grayBuf) : params.threshold;
+          if (params.binMode === 'otsu') {
+            document.getElementById('val-threshold').textContent = `Auto (${thresh})`;
+            document.getElementById('param-threshold').value = thresh;
+          } else {
+            document.getElementById('val-threshold').textContent = `${thresh}`;
+          }
+          binaryMask = new Uint8Array(workW * workH);
+          for (let i = 0; i < grayBuf.length; i++) {
+            const isDark = grayBuf[i] < thresh;
+            binaryMask[i] = params.invert ? (isDark ? 0 : 1) : (isDark ? 1 : 0);
+          }
         }
 
-        binaryMask = new Uint8Array(workW * workH);
-        for (let i = 0; i < grayBuf.length; i++) {
-          const isDark = grayBuf[i] < thresh;
-          binaryMask[i] = params.invert ? (isDark ? 0 : 1) : (isDark ? 1 : 0);
-        }
-
-        // Distance transform & Line/Fill separation
         distMap = computeEDT(binaryMask, workW, workH);
         lineMask = new Uint8Array(workW * workH);
         fillMask = new Uint8Array(workW * workH);
@@ -1312,23 +1378,19 @@
           else lineMask[i] = 1;
         }
 
-        // Skeletonize Line Mask
         skeletonMask = zhangSuenThinning(lineMask, workW, workH);
-        let rawChains = traceSkeletonPolylines(skeletonMask, workW, workH, params.spur);
-        let linePolys = rawChains
+        const rawChains = traceSkeletonPolylines(skeletonMask, workW, workH, params.spur);
+        const linePolys = rawChains
           .map(pts => gaussianSmooth(pts, params.smooth))
           .map(pts => rdpSimplify(pts, params.simplify))
-          .filter(pts => pts.length >= 2)
+          .filter(pts => pts.length >= 2 && polylineLength(pts) >= params.minLen)
           .map(pts => ({ pts, type: 'line' }));
 
-        // Multipass
         let allPolys = [...linePolys];
         if (params.multipass) {
-          const extraMulti = generateMultipass(linePolys, distMap, workW, workH, params.penWidth);
-          allPolys = allPolys.concat(extraMulti);
+          allPolys = allPolys.concat(generateMultipass(linePolys, distMap, workW, workH, params.penWidth));
         }
 
-        // Orientation Field & Fill Hatching
         const field = buildOrientationField(linePolys, workW, workH);
         orientCos = field.oCos;
         orientSin = field.oSin;
@@ -1341,21 +1403,19 @@
           allPolys = allPolys.concat(extractOutline(fillMask, workW, workH));
         }
 
-        // Residual pass
         if (params.residual) {
-          allPolys = allPolys.concat(residualRefine(allPolys, binaryMask, workW, workH, params.penWidth));
+          allPolys = allPolys.concat(residualRefine(allPolys, binaryMask, workW, workH, params.penWidth, params.minLen));
         }
 
-        // Greedy path sorting
         const sortedRes = sortPolylinesGreedy(allPolys);
-        finalPolylines = sortedRes.sorted || [];
+        finalPolylines = sortedRes.sorted;
         let totalPts = 0;
         for (const p of finalPolylines) totalPts += p.pts.length;
         drawStats = {
           strokes: finalPolylines.length,
           points: totalPts,
-          drawDist: sortedRes.drawDist || 0,
-          travelDist: sortedRes.travelDist || 0
+          drawDist: sortedRes.drawDist,
+          travelDist: sortedRes.travelDist
         };
 
         document.getElementById('stat-strokes').textContent = drawStats.strokes;
@@ -1371,7 +1431,7 @@
     }
 
     // =========================================================================
-    // p5.js Instance & Simulation State Machine
+    // p5.js Instance & Offscreen Buffered Rendering (60fps even at 2000px+)
     // =========================================================================
     function getPaperBg(paper) {
       if (paper === 'white') return '#ffffff';
@@ -1379,13 +1439,62 @@
       return '#faf6ee';
     }
 
+    function rebuildGraphicsCache(params) {
+      if (!p5Instance) return;
+      if (!pgCompleted || pgCompleted.width !== workW || pgCompleted.height !== workH) {
+        if (pgCompleted) pgCompleted.remove();
+        if (pgTravel) pgTravel.remove();
+        pgCompleted = p5Instance.createGraphics(workW, workH);
+        pgTravel = p5Instance.createGraphics(workW, workH);
+        pgCompleted.pixelDensity(1);
+        pgTravel.pixelDensity(1);
+      }
+      pgCompleted.clear();
+      pgTravel.clear();
+
+      pgCompleted.noFill();
+      pgCompleted.stroke(params.inkColor);
+      pgCompleted.strokeWeight(params.penWidth);
+      pgCompleted.strokeCap(p5Instance.ROUND);
+      pgCompleted.strokeJoin(p5Instance.ROUND);
+
+      pgTravel.stroke(239, 68, 68, 95);
+      pgTravel.strokeWeight(0.8);
+      pgTravel.drawingContext.setLineDash([4, 4]);
+
+      let px = 0, py = 0;
+      const doneCount = animState.done ? finalPolylines.length : animState.strokeIdx;
+      for (let s = 0; s < doneCount && s < finalPolylines.length; s++) {
+        const pts = finalPolylines[s].pts;
+        if (pts.length > 0) {
+          pgTravel.line(px, py, pts[0].x, pts[0].y);
+          px = pts[pts.length - 1].x;
+          py = pts[pts.length - 1].y;
+        }
+        pgCompleted.beginShape();
+        for (let i = 0; i < pts.length; i++) pgCompleted.vertex(pts[i].x, pts[i].y);
+        pgCompleted.endShape();
+      }
+      if (!animState.done && animState.strokeIdx < finalPolylines.length) {
+        const curPts = finalPolylines[animState.strokeIdx].pts;
+        if (curPts.length > 0) pgTravel.line(px, py, curPts[0].x, curPts[0].y);
+        for (let i = 0; i < animState.ptIdx && i < curPts.length - 1; i++) {
+          pgCompleted.line(curPts[i].x, curPts[i].y, curPts[i + 1].x, curPts[i + 1].y);
+        }
+      }
+      lastHeadX = px;
+      lastHeadY = py;
+    }
+
     function restartAnimation() {
       animState = { strokeIdx: 0, ptIdx: 0, done: finalPolylines.length === 0 };
       isPlaying = true;
+      lastHeadX = 0;
+      lastHeadY = 0;
       document.getElementById('play-icon').textContent = '暫停';
       if (p5Instance) {
         p5Instance.resizeCanvas(workW, workH);
-        p5Instance.background(getPaperBg(getParams().paper));
+        rebuildGraphicsCache(getParams());
         p5Instance.loop();
       }
       updateProgressUI();
@@ -1399,87 +1508,25 @@
     function initP5() {
       new p5(p => {
         p5Instance = p;
-        let lastPaper = '';
         p.setup = () => {
           const c = p.createCanvas(workW, workH);
           c.parent('p5-container');
           p.pixelDensity(1);
-          p.background(getPaperBg(getParams().paper));
+          rebuildGraphicsCache(getParams());
         };
 
         p.draw = () => {
           const params = getParams();
-          if (params.paper !== lastPaper) {
-            lastPaper = params.paper;
+          const styleKey = `${params.inkColor}_${params.penWidth}`;
+          if (styleKey !== lastRenderStyleKey) {
+            lastRenderStyleKey = styleKey;
+            rebuildGraphicsCache(params);
           }
 
-          // Redraw from scratch up to current progress cleanly so travel lines & pen head don't smear
-          p.background(getPaperBg(params.paper));
+          if (isPlaying && !animState.done && pgCompleted && pgTravel) {
+            pgCompleted.stroke(params.inkColor);
+            pgCompleted.strokeWeight(params.penWidth);
 
-          // 1. Draw travel lines (optional)
-          if (params.showTravel) {
-            p.push();
-            p.stroke(239, 68, 68, 85);
-            p.strokeWeight(0.8);
-            p.drawingContext.setLineDash([4, 4]);
-            let px = 0, py = 0;
-            const limitS = animState.done ? finalPolylines.length : animState.strokeIdx + 1;
-            for (let s = 0; s < limitS && s < finalPolylines.length; s++) {
-              const pts = finalPolylines[s].pts;
-              if (pts.length > 0) {
-                p.line(px, py, pts[0].x, pts[0].y);
-                const end = pts[pts.length - 1];
-                px = end.x; py = end.y;
-              }
-            }
-            p.drawingContext.setLineDash([]);
-            p.pop();
-          }
-
-          // 2. Draw completed & current strokes
-          p.noFill();
-          p.stroke(params.inkColor);
-          p.strokeWeight(params.penWidth);
-          p.strokeCap(p.ROUND);
-          p.strokeJoin(p.ROUND);
-
-          const completedCount = animState.done ? finalPolylines.length : animState.strokeIdx;
-          for (let s = 0; s < completedCount; s++) {
-            const pts = finalPolylines[s].pts;
-            p.beginShape();
-            for (let i = 0; i < pts.length; i++) p.vertex(pts[i].x, pts[i].y);
-            p.endShape();
-          }
-
-          let headX = 0, headY = 0;
-          if (!animState.done && animState.strokeIdx < finalPolylines.length) {
-            const curPts = finalPolylines[animState.strokeIdx].pts;
-            const endIdx = Math.min(curPts.length - 1, animState.ptIdx);
-            p.beginShape();
-            for (let i = 0; i <= endIdx; i++) p.vertex(curPts[i].x, curPts[i].y);
-            p.endShape();
-            headX = curPts[endIdx].x;
-            headY = curPts[endIdx].y;
-          } else if (finalPolylines.length > 0) {
-            const lastPoly = finalPolylines[finalPolylines.length - 1].pts;
-            headX = lastPoly[lastPoly.length - 1].x;
-            headY = lastPoly[lastPoly.length - 1].y;
-          }
-
-          // 3. Draw virtual pen head
-          if (params.showHead && !animState.done && finalPolylines.length > 0) {
-            p.push();
-            p.stroke(56, 189, 248);
-            p.strokeWeight(1.5);
-            p.noFill();
-            p.circle(headX, headY, 14);
-            p.line(headX - 11, headY, headX + 11, headY);
-            p.line(headX, headY - 11, headX, headY + 11);
-            p.pop();
-          }
-
-          // 4. Advance plotter state
-          if (isPlaying && !animState.done) {
             let steps = params.speed;
             while (steps > 0 && !animState.done) {
               if (animState.strokeIdx >= finalPolylines.length) {
@@ -1487,7 +1534,17 @@
                 break;
               }
               const curPts = finalPolylines[animState.strokeIdx].pts;
+              if (animState.ptIdx === 0 && curPts.length > 0) {
+                pgTravel.line(lastHeadX, lastHeadY, curPts[0].x, curPts[0].y);
+                lastHeadX = curPts[0].x;
+                lastHeadY = curPts[0].y;
+              }
               if (animState.ptIdx < curPts.length - 1) {
+                const p0 = curPts[animState.ptIdx];
+                const p1 = curPts[animState.ptIdx + 1];
+                pgCompleted.line(p0.x, p0.y, p1.x, p1.y);
+                lastHeadX = p1.x;
+                lastHeadY = p1.y;
                 animState.ptIdx++;
               } else {
                 animState.strokeIdx++;
@@ -1500,12 +1557,27 @@
             }
             updateProgressUI();
           }
+
+          p.background(getPaperBg(params.paper));
+          if (params.showTravel && pgTravel) p.image(pgTravel, 0, 0);
+          if (pgCompleted) p.image(pgCompleted, 0, 0);
+
+          if (params.showHead && !animState.done && finalPolylines.length > 0) {
+            p.push();
+            p.stroke(56, 189, 248);
+            p.strokeWeight(1.5);
+            p.noFill();
+            p.circle(lastHeadX, lastHeadY, 14);
+            p.line(lastHeadX - 11, lastHeadY, lastHeadX + 11, lastHeadY);
+            p.line(lastHeadX, lastHeadY - 11, lastHeadX, lastHeadY + 11);
+            p.pop();
+          }
         };
       });
     }
 
     // =========================================================================
-    // Debug Views (Source / Line-Fill Separation / Skeleton + Orientation Field)
+    // Debug Views
     // =========================================================================
     function renderDebugCanvas() {
       const dbg = document.getElementById('debug-canvas');
@@ -1521,9 +1593,9 @@
         for (let i = 0; i < workW * workH; i++) {
           const p = i * 4;
           if (lineMask && lineMask[i]) {
-            img.data[p] = 56; img.data[p + 1] = 189; img.data[p + 2] = 248; img.data[p + 3] = 255; // Cyan = Line
+            img.data[p] = 56; img.data[p + 1] = 189; img.data[p + 2] = 248; img.data[p + 3] = 255;
           } else if (fillMask && fillMask[i]) {
-            img.data[p] = 249; img.data[p + 1] = 115; img.data[p + 2] = 22; img.data[p + 3] = 255; // Orange = Fill
+            img.data[p] = 249; img.data[p + 1] = 115; img.data[p + 2] = 22; img.data[p + 3] = 255;
           } else {
             img.data[p] = 15; img.data[p + 1] = 23; img.data[p + 2] = 42; img.data[p + 3] = 255;
           }
@@ -1532,7 +1604,6 @@
       } else if (currentView === 'skeleton') {
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(0, 0, workW, workH);
-        // Orientation field vectors
         if (orientCos && orientSin) {
           ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
           ctx.lineWidth = 1;
@@ -1547,7 +1618,6 @@
             }
           }
         }
-        // Skeleton pixels
         if (skeletonMask) {
           ctx.fillStyle = '#34d399';
           for (let y = 0; y < workH; y++) {
@@ -1560,7 +1630,7 @@
     }
 
     // =========================================================================
-    // Exporters (SVG & Standalone p5.js Sketch)
+    // Exporters
     // =========================================================================
     function generateSVG() {
       const params = getParams();
@@ -1628,11 +1698,12 @@ function draw() {
     window.addEventListener('DOMContentLoaded', () => {
       initP5();
 
-      // Slider readout bindings
       const rangeBindings = [
+        ['param-adaptive-bias', 'val-adaptive-bias', v => v],
         ['param-threshold', 'val-threshold', v => v],
         ['param-fill-width', 'val-fill-width', v => `${v} px`],
         ['param-spur', 'val-spur', v => `${v} px`],
+        ['param-min-len', 'val-min-len', v => `${v} px`],
         ['param-smooth', 'val-smooth', v => v],
         ['param-simplify', 'val-simplify', v => v],
         ['param-pen-width', 'val-pen-width', v => `${v} px`],
@@ -1646,8 +1717,11 @@ function draw() {
         });
       }
 
-      document.getElementById('param-auto-otsu').addEventListener('change', e => {
-        document.getElementById('param-threshold').disabled = e.target.checked;
+      document.getElementById('param-bin-mode').addEventListener('change', e => {
+        const mode = e.target.value;
+        document.getElementById('adaptive-wrap').classList.toggle('hidden', mode !== 'adaptive');
+        document.getElementById('global-thresh-wrap').classList.toggle('hidden', mode === 'adaptive');
+        document.getElementById('param-threshold').disabled = mode === 'otsu';
       });
 
       document.getElementById('param-fill-mode').addEventListener('change', e => {
@@ -1657,12 +1731,10 @@ function draw() {
 
       document.getElementById('btn-reprocess').addEventListener('click', runPipeline);
 
-      // Sample buttons
       document.querySelectorAll('.sample-btn').forEach(btn => {
         btn.addEventListener('click', () => loadSample(btn.dataset.sample));
       });
 
-      // File upload & drag-and-drop
       const handleFile = file => {
         if (!file) return;
         const reader = new FileReader();
@@ -1675,7 +1747,7 @@ function draw() {
             sourceCtx.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
             sourceCtx.drawImage(img, 0, 0);
             runPipeline();
-            showToast(`已載入：${file.name}`);
+            showToast(`已載入：${file.name} (${sourceCanvas.width}×${sourceCanvas.height})`);
           };
           img.src = ev.target.result;
         };
@@ -1692,7 +1764,6 @@ function draw() {
         handleFile(e.dataTransfer.files[0]);
       });
 
-      // Playback controls
       document.getElementById('btn-play-pause').addEventListener('click', () => {
         if (animState.done) {
           restartAnimation();
@@ -1704,13 +1775,14 @@ function draw() {
       document.getElementById('btn-restart').addEventListener('click', restartAnimation);
       document.getElementById('btn-instant').addEventListener('click', () => {
         animState.strokeIdx = finalPolylines.length;
+        animState.ptIdx = 0;
         animState.done = true;
         isPlaying = false;
         document.getElementById('play-icon').textContent = '重播';
+        rebuildGraphicsCache(getParams());
         updateProgressUI();
       });
 
-      // View Tabs
       document.querySelectorAll('.view-tab').forEach(tab => {
         tab.addEventListener('click', () => {
           currentView = tab.dataset.view;
@@ -1733,7 +1805,6 @@ function draw() {
         });
       });
 
-      // Exports
       document.getElementById('btn-export-svg').addEventListener('click', () => {
         downloadTextFile('ring-plotter-lines.svg', generateSVG(), 'image/svg+xml');
         showToast('已匯出 SVG 向量檔');
@@ -1769,7 +1840,6 @@ function draw() {
         showToast('已下載 sketch.js');
       });
 
-      // Load initial sample
       loadSample('manga');
     });
   </script>
