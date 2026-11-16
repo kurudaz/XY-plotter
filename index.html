@@ -1405,16 +1405,23 @@
       for (let y = 1; y < h - 1; y++) {
         for (let x = 1; x < w - 1; x++) {
           const i = y * w + x;
-          // Sobel on luminance + max channel gradient for colored edges
-          const gxL = -gray[i - w - 1] + gray[i - w + 1] - 2 * gray[i - 1] + 2 * gray[i + 1] - gray[i + w - 1] + gray[i + w + 1];
-          const gyL = -gray[i - w - 1] - 2 * gray[i - w] - gray[i - w + 1] + gray[i + w - 1] + 2 * gray[i + w] + gray[i + w + 1];
-          jxx[i] = gxL * gxL;
-          jyy[i] = gyL * gyL;
-          jxy[i] = gxL * gyL;
+          let sxx = 0, syy = 0, sxy = 0;
+          for (let c = 0; c < 3; c++) {
+            const pTL = ((i - w - 1) << 2) + c, pT = ((i - w) << 2) + c, pTR = ((i - w + 1) << 2) + c;
+            const pL = ((i - 1) << 2) + c, pR = ((i + 1) << 2) + c;
+            const pBL = ((i + w - 1) << 2) + c, pB = ((i + w) << 2) + c, pBR = ((i + w + 1) << 2) + c;
+            const gx = -rgba[pTL] + rgba[pTR] - 2 * rgba[pL] + 2 * rgba[pR] - rgba[pBL] + rgba[pBR];
+            const gy = -rgba[pTL] - 2 * rgba[pT] - rgba[pTR] + rgba[pBL] + 2 * rgba[pB] + rgba[pBR];
+            sxx += gx * gx;
+            syy += gy * gy;
+            sxy += gx * gy;
+          }
+          jxx[i] = sxx;
+          jyy[i] = syy;
+          jxy[i] = sxy;
         }
       }
 
-      // Separable blur to diffuse structure tensor smoothly across flat regions
       const dCos = new Float32Array(w * h);
       const dSin = new Float32Array(w * h);
       for (let i = 0; i < w * h; i++) {
@@ -1424,7 +1431,7 @@
 
       const tmpC = new Float32Array(w * h);
       const tmpS = new Float32Array(w * h);
-      for (const rad of [14, 9, 5]) {
+      for (const rad of [16, 10, 6]) {
         for (let y = 0; y < h; y++) {
           let sc = 0, ss = 0;
           const row = y * w;
@@ -1452,7 +1459,6 @@
       const oSin = new Float32Array(w * h);
       for (let i = 0; i < w * h; i++) {
         const mag = Math.hypot(dCos[i], dSin[i]);
-        // Gradient normal -> +PI/2 for edge tangent!
         const theta = mag > 1e-3 ? 0.5 * Math.atan2(dSin[i], dCos[i]) + Math.PI / 2 : Math.PI / 4;
         oCos[i] = Math.cos(theta);
         oSin[i] = Math.sin(theta);
@@ -1460,20 +1466,97 @@
       return { oCos, oSin };
     }
 
+    function segmentColorMasses(rgba, w, h, colorTol) {
+      // 4x downsampled coarse grid for fast contiguous color-mass segmentation
+      const step = 4;
+      const cw = Math.max(16, Math.floor(w / step));
+      const ch = Math.max(16, Math.floor(h / step));
+      const cRgb = new Uint8Array(cw * ch * 3);
+      for (let cy = 0; cy < ch; cy++) {
+        const sy = Math.min(h - 1, cy * step + 1);
+        for (let cx = 0; cx < cw; cx++) {
+          const sx = Math.min(w - 1, cx * step + 1);
+          const sp = (sy * w + sx) * 4;
+          const dp = (cy * cw + cx) * 3;
+          cRgb[dp] = rgba[sp];
+          cRgb[dp + 1] = rgba[sp + 1];
+          cRgb[dp + 2] = rgba[sp + 2];
+        }
+      }
+
+      const labels = new Int32Array(cw * ch).fill(-1);
+      const masses = []; // { id, area, r, g, b, minX, maxX, minY, maxY }
+      const queue = new Int32Array(cw * ch);
+      const tolSum = colorTol * 2.4;
+
+      for (let i = 0; i < cw * ch; i++) {
+        if (labels[i] !== -1) continue;
+        const id = masses.length;
+        const seedR = cRgb[i * 3], seedG = cRgb[i * 3 + 1], seedB = cRgb[i * 3 + 2];
+        let head = 0, tail = 0;
+        queue[tail++] = i;
+        labels[i] = id;
+
+        let sumR = 0, sumG = 0, sumB = 0, count = 0;
+        let minX = cw, maxX = 0, minY = ch, maxY = 0;
+
+        while (head < tail) {
+          const cur = queue[head++];
+          const cx = cur % cw, cy = Math.floor(cur / cw);
+          const p = cur * 3;
+          sumR += cRgb[p]; sumG += cRgb[p + 1]; sumB += cRgb[p + 2];
+          count++;
+          if (cx < minX) minX = cx; if (cx > maxX) maxX = cx;
+          if (cy < minY) minY = cy; if (cy > maxY) maxY = cy;
+
+          const nbs = [
+            cx > 0 ? cur - 1 : -1,
+            cx < cw - 1 ? cur + 1 : -1,
+            cy > 0 ? cur - cw : -1,
+            cy < ch - 1 ? cur + cw : -1
+          ];
+          for (let k = 0; k < 4; k++) {
+            const ni = nbs[k];
+            if (ni === -1 || labels[ni] !== -1) continue;
+            const np = ni * 3;
+            const diff = Math.abs(cRgb[np] - seedR) + Math.abs(cRgb[np + 1] - seedG) + Math.abs(cRgb[np + 2] - seedB);
+            if (diff <= tolSum) {
+              labels[ni] = id;
+              queue[tail++] = ni;
+            }
+          }
+        }
+        masses.push({
+          id,
+          area: count,
+          r: Math.round(sumR / count),
+          g: Math.round(sumG / count),
+          b: Math.round(sumB / count),
+          minX: minX * step,
+          maxX: Math.min(w - 1, (maxX + 1) * step),
+          minY: minY * step,
+          maxY: Math.min(h - 1, (maxY + 1) * step)
+        });
+      }
+      return { labels, cw, ch, step, masses };
+    }
+
     function generateWatercolorStrokes(rgba, gray, w, h, oCos, oSin, params) {
       const strokes = [];
-      // 3 coarse-to-fine wet-on-wet layers
-      const layers = [
-        { spacing: Math.max(12, Math.round(18 / params.wcDetail)), width: 28, alpha: 48, maxSteps: 26, stepLen: 3.5, colorTol: params.wcWetness * 1.4, gradMin: 0 },
-        { spacing: Math.max(7, Math.round(10 / params.wcDetail)), width: 14, alpha: 76, maxSteps: 20, stepLen: 2.8, colorTol: params.wcWetness * 0.95, gradMin: 0 },
-        { spacing: Math.max(4, Math.round(5.5 / params.wcDetail)), width: 6, alpha: 118, maxSteps: 14, stepLen: 2.2, colorTol: params.wcWetness * 0.65, gradMin: 18 }
-      ];
+      const minDim = Math.min(w, h);
+      const { labels, cw, ch, step, masses } = segmentColorMasses(rgba, w, h, params.wcWetness);
 
       function sampleRgb(x, y) {
         const ix = Math.max(0, Math.min(w - 1, Math.round(x)));
         const iy = Math.max(0, Math.min(h - 1, Math.round(y)));
         const p = (iy * w + ix) * 4;
         return { r: rgba[p], g: rgba[p + 1], b: rgba[p + 2] };
+      }
+
+      function getMassId(x, y) {
+        const cx = Math.max(0, Math.min(cw - 1, Math.floor(x / step)));
+        const cy = Math.max(0, Math.min(ch - 1, Math.floor(y / step)));
+        return labels[cy * cw + cx];
       }
 
       function localGrad(x, y) {
@@ -1483,61 +1566,206 @@
         return Math.abs(gray[i + 1] - gray[i - 1]) + Math.abs(gray[i + w] - gray[i - w]);
       }
 
-      for (let li = 0; li < layers.length; li++) {
-        const cfg = layers[li];
-        const seeds = [];
-        for (let y = cfg.spacing / 2; y < h; y += cfg.spacing) {
-          for (let x = cfg.spacing / 2; x < w; x += cfg.spacing) {
-            const jx = x + (detRand(x, y, li + 1) - 0.5) * cfg.spacing * 0.85;
-            const jy = y + (detRand(x, y, li + 2) - 0.5) * cfg.spacing * 0.85;
-            if (jx < 1 || jx >= w - 1 || jy < 1 || jy >= h - 1) continue;
-            if (cfg.gradMin > 0 && localGrad(jx, jy) < cfg.gradMin) continue;
-            seeds.push({ x: jx, y: jy });
-          }
+      function sampleDir(x, y, prevDx, prevDy) {
+        const ix = Math.max(0, Math.min(w - 1, Math.round(x)));
+        const iy = Math.max(0, Math.min(h - 1, Math.round(y)));
+        let vx = oCos[iy * w + ix];
+        let vy = oSin[iy * w + ix];
+        if (prevDx !== undefined && vx * prevDx + vy * prevDy < 0) {
+          vx = -vx;
+          vy = -vy;
         }
-        // Deterministic shuffle so washes blend naturally
-        seeds.sort((a, b) => detRand(a.x, a.y, 9) - detRand(b.x, b.y, 9));
+        return { vx, vy };
+      }
 
-        for (const seed of seeds) {
-          const base = sampleRgb(seed.x, seed.y);
-          // Skip near-pure white paper highlights in top wash so paper breathes
-          if (li === 0 && base.r > 246 && base.g > 246 && base.b > 246) continue;
-
-          const pts = [{ x: seed.x, y: seed.y }];
-          let cx = seed.x, cy = seed.y;
-          let prevDx = oCos[Math.round(cy) * w + Math.round(cx)];
-          let prevDy = oSin[Math.round(cy) * w + Math.round(cx)];
-          if (detRand(seed.x, seed.y, 5) < 0.5) { prevDx = -prevDx; prevDy = -prevDy; }
-
-          for (let s = 0; s < cfg.maxSteps; s++) {
-            const ix = Math.max(0, Math.min(w - 1, Math.round(cx)));
-            const iy = Math.max(0, Math.min(h - 1, Math.round(cy)));
-            let vx = oCos[iy * w + ix];
-            let vy = oSin[iy * w + ix];
-            if (vx * prevDx + vy * prevDy < 0) { vx = -vx; vy = -vy; }
-            cx += vx * cfg.stepLen;
-            cy += vy * cfg.stepLen;
-            if (cx < 0 || cx >= w || cy < 0 || cy >= h) break;
-            const cur = sampleRgb(cx, cy);
-            const diff = Math.abs(cur.r - base.r) + Math.abs(cur.g - base.g) + Math.abs(cur.b - base.b);
-            if (diff > cfg.colorTol * 3) break;
-            pts.push({ x: cx, y: cy });
-            prevDx = vx; prevDy = vy;
+      // Spatial occupancy grid per stage (Jobard-Lefer style non-overlapping flow streamlines)
+      function createFlowGrid(dSep) {
+        const cellSize = Math.max(2, dSep);
+        const gw = Math.ceil(w / cellSize);
+        const gh = Math.ceil(h / cellSize);
+        const buckets = Array.from({ length: gw * gh }, () => []);
+        return {
+          isTooClose(x, y, minDist) {
+            const gx = Math.floor(x / cellSize);
+            const gy = Math.floor(y / cellSize);
+            const minSq = minDist * minDist;
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                const nx = gx + dx, ny = gy + dy;
+                if (nx < 0 || nx >= gw || ny < 0 || ny >= gh) continue;
+                const b = buckets[ny * gw + nx];
+                for (let i = 0; i < b.length; i++) {
+                  const ddx = b[i].x - x, ddy = b[i].y - y;
+                  if (ddx * ddx + ddy * ddy < minSq) return true;
+                }
+              }
+            }
+            return false;
+          },
+          addPts(pts) {
+            for (let i = 0; i < pts.length; i++) {
+              const gx = Math.max(0, Math.min(gw - 1, Math.floor(pts[i].x / cellSize)));
+              const gy = Math.max(0, Math.min(gh - 1, Math.floor(pts[i].y / cellSize)));
+              buckets[gy * gw + gx].push(pts[i]);
+            }
           }
+        };
+      }
 
-          if (pts.length >= 2) {
-            strokes.push({
-              pts,
-              r: base.r,
-              g: base.g,
-              b: base.b,
-              alpha: cfg.alpha,
-              width: cfg.width * (0.8 + detRand(seed.x, seed.y, 7) * 0.45),
-              layer: li
-            });
+      // Bidirectional RK2 flow streamline integration
+      function traceBidirectionalFlow(sx, sy, halfSteps, stepLen, colorTol, targetMassId, allowCrossMass, grid, dSep) {
+        const dTest = dSep * 0.55;
+        if (grid.isTooClose(sx, sy, dSep * 0.8)) return null;
+
+        const base = sampleRgb(sx, sy);
+        const init = sampleDir(sx, sy);
+
+        function march(dirSign) {
+          const arr = [];
+          let cx = sx, cy = sy;
+          let dx = init.vx * dirSign, dy = init.vy * dirSign;
+          let prevCol = base;
+          for (let s = 0; s < halfSteps; s++) {
+            // RK2 midpoint integration for smooth curved flow lines
+            const mx = cx + dx * (stepLen * 0.5);
+            const my = cy + dy * (stepLen * 0.5);
+            const midD = sampleDir(mx, my, dx, dy);
+            cx += midD.vx * stepLen;
+            cy += midD.vy * stepLen;
+            if (cx < 1 || cx >= w - 1 || cy < 1 || cy >= h - 1) break;
+            if (grid.isTooClose(cx, cy, dTest)) break;
+            if (!allowCrossMass && targetMassId !== -1 && getMassId(cx, cy) !== targetMassId && s > 1) break;
+
+            const cur = sampleRgb(cx, cy);
+            const stepDiff = Math.abs(cur.r - prevCol.r) + Math.abs(cur.g - prevCol.g) + Math.abs(cur.b - prevCol.b);
+            const baseDiff = Math.abs(cur.r - base.r) + Math.abs(cur.g - base.g) + Math.abs(cur.b - base.b);
+            if (stepDiff > colorTol * 1.8 || baseDiff > colorTol * 3.2) break;
+
+            arr.push({ x: cx, y: cy });
+            dx = midD.vx; dy = midD.vy;
+            prevCol = cur;
+          }
+          return arr;
+        }
+
+        const fwd = march(1);
+        const bwd = march(-1);
+        const pts = bwd.reverse().concat([{ x: sx, y: sy }], fwd);
+        if (pts.length < 3) return null;
+        grid.addPts(pts);
+        return { pts, base };
+      }
+
+      const sortedMasses = [...masses].sort((a, b) => b.area - a.area);
+      const totalCoarse = cw * ch;
+
+      // Stages 0-2: Mass-ordered flow streamlines (Large -> Medium -> Small)
+      const stageConfigs = [
+        {
+          stageName: '大塊面鋪底',
+          minAreaRatio: 0.015,
+          maxAreaRatio: 1.0,
+          width: Math.max(34, Math.round(minDim * 0.09)),
+          dSep: Math.max(18, Math.round((minDim * 0.048) / params.wcDetail)),
+          alpha: 46,
+          halfSteps: 22,
+          stepLen: 6.0,
+          colorTol: params.wcWetness * 1.6,
+          allowCrossMass: false
+        },
+        {
+          stageName: '中塊面塑形',
+          minAreaRatio: 0.0018,
+          maxAreaRatio: 1.0,
+          width: Math.max(15, Math.round(minDim * 0.038)),
+          dSep: Math.max(9, Math.round((minDim * 0.022) / params.wcDetail)),
+          alpha: 68,
+          halfSteps: 16,
+          stepLen: 4.0,
+          colorTol: params.wcWetness * 1.15,
+          allowCrossMass: false
+        },
+        {
+          stageName: '小塊面刻畫',
+          minAreaRatio: 0.00015,
+          maxAreaRatio: 0.04,
+          width: Math.max(7.5, Math.round(minDim * 0.016)),
+          dSep: Math.max(4.5, Math.round((minDim * 0.01) / params.wcDetail)),
+          alpha: 92,
+          halfSteps: 12,
+          stepLen: 2.8,
+          colorTol: params.wcWetness * 0.9,
+          allowCrossMass: true
+        }
+      ];
+
+      for (let li = 0; li < stageConfigs.length; li++) {
+        const cfg = stageConfigs[li];
+        const grid = createFlowGrid(cfg.dSep);
+        for (const mass of sortedMasses) {
+          const ratio = mass.area / totalCoarse;
+          if (ratio < cfg.minAreaRatio || ratio > cfg.maxAreaRatio) continue;
+          if (li === 0 && mass.r > 246 && mass.g > 246 && mass.b > 246) continue;
+
+          const seedStep = Math.max(4, Math.round(cfg.dSep * 0.85));
+          for (let y = mass.minY + seedStep * 0.5; y <= mass.maxY; y += seedStep) {
+            for (let x = mass.minX + seedStep * 0.5; x <= mass.maxX; x += seedStep) {
+              const jx = x + (detRand(x, y, li + 1) - 0.5) * seedStep * 0.5;
+              const jy = y + (detRand(x, y, li + 2) - 0.5) * seedStep * 0.5;
+              if (jx < 1 || jx >= w - 1 || jy < 1 || jy >= h - 1) continue;
+              if (getMassId(jx, jy) !== mass.id) continue;
+
+              const res = traceBidirectionalFlow(jx, jy, cfg.halfSteps, cfg.stepLen, cfg.colorTol, mass.id, cfg.allowCrossMass, grid, cfg.dSep);
+              if (res) {
+                strokes.push({
+                  pts: res.pts,
+                  r: res.base.r,
+                  g: res.base.g,
+                  b: res.base.b,
+                  alpha: cfg.alpha,
+                  width: cfg.width * (0.85 + detRand(jx, jy, 7) * 0.35),
+                  layer: li,
+                  stageName: cfg.stageName
+                });
+              }
+            }
           }
         }
       }
+
+      // Stage 3: 細節點睛 — True flow-following contour streamlines (no choppy dots!)
+      const fineDSep = Math.max(3.5, Math.round(5.0 / params.wcDetail));
+      const fineWidth = Math.max(3.2, Math.round(minDim * 0.007));
+      const fineGrid = createFlowGrid(fineDSep);
+      const fineSeeds = [];
+      for (let y = fineDSep; y < h - fineDSep; y += fineDSep) {
+        for (let x = fineDSep; x < w - fineDSep; x += fineDSep) {
+          const g = localGrad(x, y);
+          if (g >= 20) fineSeeds.push({ x, y, g });
+        }
+      }
+      // Trace strongest contour flows first so long clean streamlines win
+      fineSeeds.sort((a, b) => b.g - a.g);
+
+      for (const seed of fineSeeds) {
+        const res = traceBidirectionalFlow(seed.x, seed.y, 18, 2.4, params.wcWetness * 1.15, -1, true, fineGrid, fineDSep);
+        if (res && res.pts.length >= 4) {
+          // Sample median point color along streamline for cleaner edge tint
+          const midPt = res.pts[Math.floor(res.pts.length / 2)];
+          const col = sampleRgb(midPt.x, midPt.y);
+          strokes.push({
+            pts: res.pts,
+            r: col.r,
+            g: col.g,
+            b: col.b,
+            alpha: 118,
+            width: fineWidth * (0.85 + detRand(seed.x, seed.y, 43) * 0.35),
+            layer: 3,
+            stageName: '細節點睛'
+          });
+        }
+      }
+
       return strokes;
     }
 
@@ -1596,18 +1824,20 @@
           orientSin = sf.oSin;
           wcStrokes = generateWatercolorStrokes(rgba, grayBuf, workW, workH, orientCos, orientSin, params);
 
+          // Always update line/fill masks & skeleton so debug tabs stay accurate
+          distMap = computeEDT(binaryMask, workW, workH);
+          lineMask = new Uint8Array(workW * workH);
+          fillMask = new Uint8Array(workW * workH);
+          const halfFill = params.fillWidth / 2;
+          for (let i = 0; i < binaryMask.length; i++) {
+            if (!binaryMask[i]) continue;
+            if (distMap[i] > halfFill) fillMask[i] = 1;
+            else lineMask[i] = 1;
+          }
+          skeletonMask = zhangSuenThinning(lineMask, workW, workH);
+
           let overlayPolys = [];
           if (params.wcOverlay) {
-            distMap = computeEDT(binaryMask, workW, workH);
-            lineMask = new Uint8Array(workW * workH);
-            fillMask = new Uint8Array(workW * workH);
-            const halfFill = params.fillWidth / 2;
-            for (let i = 0; i < binaryMask.length; i++) {
-              if (!binaryMask[i]) continue;
-              if (distMap[i] > halfFill) fillMask[i] = 1;
-              else lineMask[i] = 1;
-            }
-            skeletonMask = zhangSuenThinning(lineMask, workW, workH);
             const rawChains = traceSkeletonPolylines(skeletonMask, workW, workH, params.spur);
             overlayPolys = rawChains
               .map(pts => gaussianSmooth(pts, params.smooth))
@@ -1846,7 +2076,12 @@
     function updateProgressUI() {
       const totalItems = appMode === 'watercolor' ? wcStrokes.length : finalPolylines.length;
       const pct = totalItems === 0 ? 100 : Math.min(100, Math.round((animState.strokeIdx / totalItems) * 100));
-      document.getElementById('stat-progress').textContent = `${animState.done ? 100 : pct}%`;
+      if (appMode === 'watercolor' && !animState.done && animState.strokeIdx < wcStrokes.length) {
+        const stName = wcStrokes[animState.strokeIdx].stageName || '';
+        document.getElementById('stat-progress').textContent = `${pct}% (${stName})`;
+      } else {
+        document.getElementById('stat-progress').textContent = `${animState.done ? 100 : pct}%`;
+      }
     }
 
     function initP5() {
@@ -1985,8 +2220,8 @@
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(0, 0, workW, workH);
         if (orientCos && orientSin) {
-          ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.6)';
+          ctx.lineWidth = 1.2;
           for (let y = 8; y < workH; y += 14) {
             for (let x = 8; x < workW; x += 14) {
               const i = y * workW + x;
