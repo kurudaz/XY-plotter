@@ -103,6 +103,45 @@
         </div>
       </section>
 
+      <!-- Mode Switcher: Line Plotter vs Experimental Flow Watercolor -->
+      <section class="bg-slate-900 border border-sky-500/40 rounded-xl p-3.5 space-y-2.5">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-sky-400">運算模式切換</h2>
+        <div class="grid grid-cols-2 gap-1.5 bg-slate-950 p-1 rounded-lg border border-slate-800">
+          <button id="mode-plotter" class="px-2 py-1.5 rounded text-xs font-semibold bg-sky-600 text-white transition">描線繪圖機</button>
+          <button id="mode-watercolor" class="px-2 py-1.5 rounded text-xs font-semibold text-slate-400 hover:text-slate-200 transition">實驗：流線水彩</button>
+        </div>
+        <div id="wc-controls" class="hidden space-y-2.5 pt-1 border-t border-slate-800">
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300">水彩筆觸細緻度（層次密度）</span>
+              <span id="val-wc-detail" class="font-mono text-sky-300">1.0x</span>
+            </div>
+            <input id="param-wc-detail" type="range" min="0.5" max="2.0" step="0.25" value="1.0" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+          </div>
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300">濕潤暈染度（跨色邊界容許）</span>
+              <span id="val-wc-wetness" class="font-mono text-sky-300">45</span>
+            </div>
+            <input id="param-wc-wetness" type="range" min="15" max="110" step="5" value="45" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+          </div>
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300">水彩紙顆粒感</span>
+              <span id="val-wc-grain" class="font-mono text-sky-300">18</span>
+            </div>
+            <input id="param-wc-grain" type="range" min="0" max="45" step="3" value="18" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+          </div>
+          <div class="flex items-center justify-between">
+            <label for="param-wc-overlay" class="text-xs text-slate-300">疊加淡彩線稿輪廓</label>
+            <input id="param-wc-overlay" type="checkbox" class="rounded border-slate-600 bg-slate-800" />
+          </div>
+          <button id="btn-wc-run" class="w-full py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs transition shadow-lg shadow-emerald-500/20">
+            重新產生流線水彩
+          </button>
+        </div>
+      </section>
+
       <!-- 2. Raster -> Vector Parameters (img2svg) -->
       <section class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 space-y-3">
         <h2 class="text-xs font-semibold uppercase tracking-wider text-sky-400">2. 影像抽線與分離 (img2svg)</h2>
@@ -395,6 +434,9 @@
     let finalPolylines = [];
     let drawStats = { lineCount: 0, fillCount: 0, points: 0, drawDist: 0, travelDist: 0 };
 
+    let appMode = 'plotter'; // 'plotter' | 'watercolor'
+    let srcRgbaBuf = null;
+    let wcStrokes = []; // { pts: [{x,y}], r, g, b, alpha, width, layer }
     let currentView = 'p5';
     let isPlaying = true;
     let animState = { strokeIdx: 0, ptIdx: 0, done: false };
@@ -450,7 +492,11 @@
         fillColor: document.getElementById('param-fill-color').value,
         fillBrush: document.getElementById('param-fill-brush').value,
         showTravel: document.getElementById('param-show-travel').checked,
-        showHead: document.getElementById('param-show-head').checked
+        showHead: document.getElementById('param-show-head').checked,
+        wcDetail: parseFloat(document.getElementById('param-wc-detail').value),
+        wcWetness: parseInt(document.getElementById('param-wc-wetness').value, 10),
+        wcGrain: parseInt(document.getElementById('param-wc-grain').value, 10),
+        wcOverlay: document.getElementById('param-wc-overlay').checked
       };
     }
 
@@ -1350,6 +1396,152 @@
     }
 
     // =========================================================================
+    // Experimental: Structure-Tensor Flow Field & Watercolor Painting
+    // =========================================================================
+    function buildImageStructureField(rgba, gray, w, h) {
+      const jxx = new Float32Array(w * h);
+      const jyy = new Float32Array(w * h);
+      const jxy = new Float32Array(w * h);
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const i = y * w + x;
+          // Sobel on luminance + max channel gradient for colored edges
+          const gxL = -gray[i - w - 1] + gray[i - w + 1] - 2 * gray[i - 1] + 2 * gray[i + 1] - gray[i + w - 1] + gray[i + w + 1];
+          const gyL = -gray[i - w - 1] - 2 * gray[i - w] - gray[i - w + 1] + gray[i + w - 1] + 2 * gray[i + w] + gray[i + w + 1];
+          jxx[i] = gxL * gxL;
+          jyy[i] = gyL * gyL;
+          jxy[i] = gxL * gyL;
+        }
+      }
+
+      // Separable blur to diffuse structure tensor smoothly across flat regions
+      const dCos = new Float32Array(w * h);
+      const dSin = new Float32Array(w * h);
+      for (let i = 0; i < w * h; i++) {
+        dCos[i] = jxx[i] - jyy[i];
+        dSin[i] = 2 * jxy[i];
+      }
+
+      const tmpC = new Float32Array(w * h);
+      const tmpS = new Float32Array(w * h);
+      for (const rad of [14, 9, 5]) {
+        for (let y = 0; y < h; y++) {
+          let sc = 0, ss = 0;
+          const row = y * w;
+          for (let x = 0; x <= rad && x < w; x++) { sc += dCos[row + x]; ss += dSin[row + x]; }
+          for (let x = 0; x < w; x++) {
+            tmpC[row + x] = sc; tmpS[row + x] = ss;
+            const addX = x + rad + 1, remX = x - rad;
+            if (addX < w) { sc += dCos[row + addX]; ss += dSin[row + addX]; }
+            if (remX >= 0) { sc -= dCos[row + remX]; ss -= dSin[row + remX]; }
+          }
+        }
+        for (let x = 0; x < w; x++) {
+          let sc = 0, ss = 0;
+          for (let y = 0; y <= rad && y < h; y++) { sc += tmpC[y * w + x]; ss += tmpS[y * w + x]; }
+          for (let y = 0; y < h; y++) {
+            dCos[y * w + x] = sc; dSin[y * w + x] = ss;
+            const addY = y + rad + 1, remY = y - rad;
+            if (addY < h) { sc += tmpC[addY * w + x]; ss += tmpS[addY * w + x]; }
+            if (remY >= 0) { sc -= tmpC[remY * w + x]; ss -= tmpS[remY * w + x]; }
+          }
+        }
+      }
+
+      const oCos = new Float32Array(w * h);
+      const oSin = new Float32Array(w * h);
+      for (let i = 0; i < w * h; i++) {
+        const mag = Math.hypot(dCos[i], dSin[i]);
+        // Gradient normal -> +PI/2 for edge tangent!
+        const theta = mag > 1e-3 ? 0.5 * Math.atan2(dSin[i], dCos[i]) + Math.PI / 2 : Math.PI / 4;
+        oCos[i] = Math.cos(theta);
+        oSin[i] = Math.sin(theta);
+      }
+      return { oCos, oSin };
+    }
+
+    function generateWatercolorStrokes(rgba, gray, w, h, oCos, oSin, params) {
+      const strokes = [];
+      // 3 coarse-to-fine wet-on-wet layers
+      const layers = [
+        { spacing: Math.max(12, Math.round(18 / params.wcDetail)), width: 28, alpha: 48, maxSteps: 26, stepLen: 3.5, colorTol: params.wcWetness * 1.4, gradMin: 0 },
+        { spacing: Math.max(7, Math.round(10 / params.wcDetail)), width: 14, alpha: 76, maxSteps: 20, stepLen: 2.8, colorTol: params.wcWetness * 0.95, gradMin: 0 },
+        { spacing: Math.max(4, Math.round(5.5 / params.wcDetail)), width: 6, alpha: 118, maxSteps: 14, stepLen: 2.2, colorTol: params.wcWetness * 0.65, gradMin: 18 }
+      ];
+
+      function sampleRgb(x, y) {
+        const ix = Math.max(0, Math.min(w - 1, Math.round(x)));
+        const iy = Math.max(0, Math.min(h - 1, Math.round(y)));
+        const p = (iy * w + ix) * 4;
+        return { r: rgba[p], g: rgba[p + 1], b: rgba[p + 2] };
+      }
+
+      function localGrad(x, y) {
+        const ix = Math.max(1, Math.min(w - 2, Math.round(x)));
+        const iy = Math.max(1, Math.min(h - 2, Math.round(y)));
+        const i = iy * w + ix;
+        return Math.abs(gray[i + 1] - gray[i - 1]) + Math.abs(gray[i + w] - gray[i - w]);
+      }
+
+      for (let li = 0; li < layers.length; li++) {
+        const cfg = layers[li];
+        const seeds = [];
+        for (let y = cfg.spacing / 2; y < h; y += cfg.spacing) {
+          for (let x = cfg.spacing / 2; x < w; x += cfg.spacing) {
+            const jx = x + (detRand(x, y, li + 1) - 0.5) * cfg.spacing * 0.85;
+            const jy = y + (detRand(x, y, li + 2) - 0.5) * cfg.spacing * 0.85;
+            if (jx < 1 || jx >= w - 1 || jy < 1 || jy >= h - 1) continue;
+            if (cfg.gradMin > 0 && localGrad(jx, jy) < cfg.gradMin) continue;
+            seeds.push({ x: jx, y: jy });
+          }
+        }
+        // Deterministic shuffle so washes blend naturally
+        seeds.sort((a, b) => detRand(a.x, a.y, 9) - detRand(b.x, b.y, 9));
+
+        for (const seed of seeds) {
+          const base = sampleRgb(seed.x, seed.y);
+          // Skip near-pure white paper highlights in top wash so paper breathes
+          if (li === 0 && base.r > 246 && base.g > 246 && base.b > 246) continue;
+
+          const pts = [{ x: seed.x, y: seed.y }];
+          let cx = seed.x, cy = seed.y;
+          let prevDx = oCos[Math.round(cy) * w + Math.round(cx)];
+          let prevDy = oSin[Math.round(cy) * w + Math.round(cx)];
+          if (detRand(seed.x, seed.y, 5) < 0.5) { prevDx = -prevDx; prevDy = -prevDy; }
+
+          for (let s = 0; s < cfg.maxSteps; s++) {
+            const ix = Math.max(0, Math.min(w - 1, Math.round(cx)));
+            const iy = Math.max(0, Math.min(h - 1, Math.round(cy)));
+            let vx = oCos[iy * w + ix];
+            let vy = oSin[iy * w + ix];
+            if (vx * prevDx + vy * prevDy < 0) { vx = -vx; vy = -vy; }
+            cx += vx * cfg.stepLen;
+            cy += vy * cfg.stepLen;
+            if (cx < 0 || cx >= w || cy < 0 || cy >= h) break;
+            const cur = sampleRgb(cx, cy);
+            const diff = Math.abs(cur.r - base.r) + Math.abs(cur.g - base.g) + Math.abs(cur.b - base.b);
+            if (diff > cfg.colorTol * 3) break;
+            pts.push({ x: cx, y: cy });
+            prevDx = vx; prevDy = vy;
+          }
+
+          if (pts.length >= 2) {
+            strokes.push({
+              pts,
+              r: base.r,
+              g: base.g,
+              b: base.b,
+              alpha: cfg.alpha,
+              width: cfg.width * (0.8 + detRand(seed.x, seed.y, 7) * 0.45),
+              layer: li
+            });
+          }
+        }
+      }
+      return strokes;
+    }
+
+    // =========================================================================
     // Main Pipeline Execution
     // =========================================================================
     function runPipeline() {
@@ -1374,6 +1566,7 @@
         tctx.fillRect(0, 0, workW, workH);
         tctx.drawImage(sourceCanvas, 0, 0, workW, workH);
         const rgba = tctx.getImageData(0, 0, workW, workH).data;
+        srcRgbaBuf = rgba;
 
         grayBuf = new Uint8Array(workW * workH);
         for (let i = 0; i < workW * workH; i++) {
@@ -1395,6 +1588,43 @@
             const isDark = grayBuf[i] < thresh;
             binaryMask[i] = params.invert ? (isDark ? 0 : 1) : (isDark ? 1 : 0);
           }
+        }
+
+        if (appMode === 'watercolor') {
+          const sf = buildImageStructureField(rgba, grayBuf, workW, workH);
+          orientCos = sf.oCos;
+          orientSin = sf.oSin;
+          wcStrokes = generateWatercolorStrokes(rgba, grayBuf, workW, workH, orientCos, orientSin, params);
+
+          let overlayPolys = [];
+          if (params.wcOverlay) {
+            distMap = computeEDT(binaryMask, workW, workH);
+            lineMask = new Uint8Array(workW * workH);
+            fillMask = new Uint8Array(workW * workH);
+            const halfFill = params.fillWidth / 2;
+            for (let i = 0; i < binaryMask.length; i++) {
+              if (!binaryMask[i]) continue;
+              if (distMap[i] > halfFill) fillMask[i] = 1;
+              else lineMask[i] = 1;
+            }
+            skeletonMask = zhangSuenThinning(lineMask, workW, workH);
+            const rawChains = traceSkeletonPolylines(skeletonMask, workW, workH, params.spur);
+            overlayPolys = rawChains
+              .map(pts => gaussianSmooth(pts, params.smooth))
+              .map(pts => rdpSimplify(pts, params.simplify))
+              .filter(pts => pts.length >= 2 && polylineLength(pts) >= params.minLen)
+              .map(pts => ({ pts, role: 'line', type: 'line' }));
+          }
+          finalPolylines = overlayPolys;
+          let totalPts = 0;
+          for (const st of wcStrokes) totalPts += st.pts.length;
+          document.getElementById('stat-strokes').textContent = `${wcStrokes.length} 水彩`;
+          document.getElementById('stat-points').textContent = totalPts;
+          document.getElementById('stat-ratio').textContent = '流線場上色';
+          restartAnimation();
+          renderDebugCanvas();
+          badge.classList.add('hidden');
+          return;
         }
 
         distMap = computeEDT(binaryMask, workW, workH);
@@ -1511,6 +1741,33 @@
       }
     }
 
+    function drawWatercolorStroke(pg, st) {
+      if (st.pts.length < 2) return;
+      pg.noFill();
+      // Soft outer wet bloom
+      pg.stroke(st.r, st.g, st.b, Math.round(st.alpha * 0.45));
+      pg.strokeWeight(st.width * 1.25);
+      pg.beginShape();
+      for (let i = 0; i < st.pts.length; i++) pg.vertex(st.pts[i].x, st.pts[i].y);
+      pg.endShape();
+
+      // Core pigment wash
+      pg.stroke(st.r, st.g, st.b, st.alpha);
+      pg.strokeWeight(st.width * 0.85);
+      pg.beginShape();
+      for (let i = 0; i < st.pts.length; i++) pg.vertex(st.pts[i].x, st.pts[i].y);
+      pg.endShape();
+
+      // Subtle wet-edge darkening at stroke boundary on mid/fine layers
+      if (st.layer >= 1) {
+        pg.stroke(Math.max(0, st.r - 28), Math.max(0, st.g - 28), Math.max(0, st.b - 28), Math.round(st.alpha * 0.3));
+        pg.strokeWeight(1.0);
+        pg.beginShape();
+        for (let i = 0; i < st.pts.length; i++) pg.vertex(st.pts[i].x, st.pts[i].y);
+        pg.endShape();
+      }
+    }
+
     function getPaperBg(paper) {
       if (paper === 'white') return '#ffffff';
       if (paper === 'dark') return '#0c192c';
@@ -1538,6 +1795,13 @@
       pgTravel.strokeWeight(0.8);
       pgTravel.drawingContext.setLineDash([4, 4]);
 
+      if (appMode === 'watercolor') {
+        const doneCount = animState.done ? wcStrokes.length : animState.strokeIdx;
+        for (let s = 0; s < doneCount && s < wcStrokes.length; s++) {
+          drawWatercolorStroke(pgCompleted, wcStrokes[s]);
+        }
+        return;
+      }
       let px = 0, py = 0;
       const doneCount = animState.done ? finalPolylines.length : animState.strokeIdx;
       for (let s = 0; s < doneCount && s < finalPolylines.length; s++) {
@@ -1565,7 +1829,8 @@
     }
 
     function restartAnimation() {
-      animState = { strokeIdx: 0, ptIdx: 0, done: finalPolylines.length === 0 };
+      const totalItems = appMode === 'watercolor' ? wcStrokes.length : finalPolylines.length;
+      animState = { strokeIdx: 0, ptIdx: 0, done: totalItems === 0 };
       isPlaying = true;
       lastHeadX = 0;
       lastHeadY = 0;
@@ -1579,7 +1844,8 @@
     }
 
     function updateProgressUI() {
-      const pct = finalPolylines.length === 0 ? 100 : Math.min(100, Math.round((animState.strokeIdx / finalPolylines.length) * 100));
+      const totalItems = appMode === 'watercolor' ? wcStrokes.length : finalPolylines.length;
+      const pct = totalItems === 0 ? 100 : Math.min(100, Math.round((animState.strokeIdx / totalItems) * 100));
       document.getElementById('stat-progress').textContent = `${animState.done ? 100 : pct}%`;
     }
 
@@ -1595,19 +1861,42 @@
 
         p.draw = () => {
           const params = getParams();
-          const styleKey = `${params.inkColor}_${params.penWidth}_${params.lineBrush}_${params.fillColor}_${params.fillBrush}`;
+          const styleKey = `${appMode}_${params.inkColor}_${params.penWidth}_${params.lineBrush}_${params.fillColor}_${params.fillBrush}_${params.wcGrain}`;
           if (styleKey !== lastRenderStyleKey) {
             lastRenderStyleKey = styleKey;
             rebuildGraphicsCache(params);
           }
 
           if (isPlaying && !animState.done && pgCompleted && pgTravel) {
-            let steps = params.speed;
-            while (steps > 0 && !animState.done) {
-              if (animState.strokeIdx >= finalPolylines.length) {
-                animState.done = true;
-                break;
+            if (appMode === 'watercolor') {
+              let batch = Math.max(4, Math.round(params.speed * 1.5));
+              while (batch > 0 && animState.strokeIdx < wcStrokes.length) {
+                const st = wcStrokes[animState.strokeIdx];
+                drawWatercolorStroke(pgCompleted, st);
+                const endPt = st.pts[st.pts.length - 1];
+                lastHeadX = endPt.x;
+                lastHeadY = endPt.y;
+                animState.strokeIdx++;
+                batch--;
               }
+              if (animState.strokeIdx >= wcStrokes.length) {
+                // Draw optional line overlay on top when watercolor washes finish
+                for (let s = 0; s < finalPolylines.length; s++) {
+                  const poly = finalPolylines[s];
+                  for (let i = 0; i < poly.pts.length - 1; i++) {
+                    drawSegmentStyled(pgCompleted, poly, s, i, params);
+                  }
+                }
+                animState.done = true;
+              }
+              updateProgressUI();
+            } else {
+              let steps = params.speed;
+              while (steps > 0 && !animState.done) {
+                if (animState.strokeIdx >= finalPolylines.length) {
+                  animState.done = true;
+                  break;
+                }
               const poly = finalPolylines[animState.strokeIdx];
               const curPts = poly.pts;
               if (animState.ptIdx === 0 && curPts.length > 0) {
@@ -1628,16 +1917,31 @@
                   animState.done = true;
                 }
               }
-              steps--;
+                steps--;
+              }
+              updateProgressUI();
             }
-            updateProgressUI();
           }
 
           p.background(getPaperBg(params.paper));
           if (params.showTravel && pgTravel) p.image(pgTravel, 0, 0);
           if (pgCompleted) p.image(pgCompleted, 0, 0);
 
-          if (params.showHead && !animState.done && finalPolylines.length > 0) {
+          if (appMode === 'watercolor' && params.wcGrain > 0) {
+            p.push();
+            p.noStroke();
+            p.fill(180, 165, 140, params.wcGrain);
+            // Fast deterministic paper tooth speckles
+            for (let g = 0; g < 180; g++) {
+              const gx = detRand(g, 1, 11) * workW;
+              const gy = detRand(g, 2, 17) * workH;
+              p.rect(gx, gy, 2, 2);
+            }
+            p.pop();
+          }
+
+          const hasItems = appMode === 'watercolor' ? wcStrokes.length > 0 : finalPolylines.length > 0;
+          if (params.showHead && !animState.done && hasItems) {
             const isFill = animState.strokeIdx < finalPolylines.length && finalPolylines[animState.strokeIdx].role === 'fill';
             p.push();
             p.stroke(isFill ? '#fb923c' : '#38bdf8');
@@ -1844,7 +2148,10 @@ function draw() {
         ['param-simplify', 'val-simplify', v => v],
         ['param-pen-width', 'val-pen-width', v => `${v} px`],
         ['param-hatch-spacing', 'val-hatch-spacing', v => `${v} px`],
-        ['param-speed', 'val-speed', v => v]
+        ['param-speed', 'val-speed', v => v],
+        ['param-wc-detail', 'val-wc-detail', v => `${v}x`],
+        ['param-wc-wetness', 'val-wc-wetness', v => v],
+        ['param-wc-grain', 'val-wc-grain', v => v]
       ];
       for (const [id, labelId, fmt] of rangeBindings) {
         const el = document.getElementById(id);
@@ -1866,6 +2173,22 @@ function draw() {
       });
 
       document.getElementById('btn-reprocess').addEventListener('click', runPipeline);
+      document.getElementById('btn-wc-run').addEventListener('click', runPipeline);
+
+      const setMode = mode => {
+        appMode = mode;
+        const isWc = mode === 'watercolor';
+        document.getElementById('wc-controls').classList.toggle('hidden', !isWc);
+        document.getElementById('mode-plotter').className = isWc
+          ? 'px-2 py-1.5 rounded text-xs font-semibold text-slate-400 hover:text-slate-200 transition'
+          : 'px-2 py-1.5 rounded text-xs font-semibold bg-sky-600 text-white transition';
+        document.getElementById('mode-watercolor').className = isWc
+          ? 'px-2 py-1.5 rounded text-xs font-semibold bg-emerald-600 text-white transition'
+          : 'px-2 py-1.5 rounded text-xs font-semibold text-slate-400 hover:text-slate-200 transition';
+        runPipeline();
+      };
+      document.getElementById('mode-plotter').addEventListener('click', () => setMode('plotter'));
+      document.getElementById('mode-watercolor').addEventListener('click', () => setMode('watercolor'));
 
       document.querySelectorAll('.sample-btn').forEach(btn => {
         btn.addEventListener('click', () => loadSample(btn.dataset.sample));
@@ -1910,7 +2233,7 @@ function draw() {
       });
       document.getElementById('btn-restart').addEventListener('click', restartAnimation);
       document.getElementById('btn-instant').addEventListener('click', () => {
-        animState.strokeIdx = finalPolylines.length;
+        animState.strokeIdx = appMode === 'watercolor' ? wcStrokes.length : finalPolylines.length;
         animState.ptIdx = 0;
         animState.done = true;
         isPlaying = false;
