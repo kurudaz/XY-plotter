@@ -53,7 +53,7 @@
       </div>
       <div>
         <h1 class="text-base sm:text-lg font-semibold text-slate-100 leading-tight">Ring-XY-Plotter → p5.js 數位描線轉換器</h1>
-        <p class="text-xs text-slate-400">支援原圖解析度 · 自適應去陰影抽線 · 距離變換 · 骨架抽取 · Jobard-Lefer 流線填充</p>
+        <p class="text-xs text-slate-400">支援原圖解析度 · 自適應去陰影抽線 · 線／面雙筆刷切換 · Jobard-Lefer 流線填充</p>
       </div>
     </div>
     <div class="flex flex-wrap items-center gap-2">
@@ -183,7 +183,7 @@
 
         <div>
           <div class="flex justify-between text-xs mb-1">
-            <span class="text-slate-300">模擬筆寬 (--pen-width)</span>
+            <span class="text-slate-300">基準筆寬 (--pen-width)</span>
             <span id="val-pen-width" class="font-mono text-sky-300">1.4 px</span>
           </div>
           <input id="param-pen-width" type="range" min="0.6" max="5.0" step="0.2" value="1.4" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
@@ -195,7 +195,7 @@
         <h2 class="text-xs font-semibold uppercase tracking-wider text-sky-400">3. 粗線填充與殘差補線 (hatch / refine)</h2>
 
         <div>
-          <label class="block text-xs text-slate-300 mb-1">填色區處理模式</label>
+          <label class="block text-xs text-slate-300 mb-1">填色區（「面」）路徑生成模式</label>
           <select id="param-fill-mode" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
             <option value="flow" selected>Jobard-Lefer 方向場流線填充 (推薦)</option>
             <option value="linear">平行排線填充 (Linear Hatch)</option>
@@ -233,9 +233,9 @@
         </button>
       </section>
 
-      <!-- 4. p5.js Plotter Playback Settings -->
+      <!-- 4. p5.js Plotter Playback & Dual-Brush Settings -->
       <section class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 space-y-3">
-        <h2 class="text-xs font-semibold uppercase tracking-wider text-sky-400">4. p5.js 數位描線模擬參數</h2>
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-sky-400">4. p5.js 線／面雙筆刷與模擬</h2>
 
         <div>
           <div class="flex justify-between text-xs mb-1">
@@ -245,19 +245,40 @@
           <input id="param-speed" type="range" min="1" max="120" step="1" value="20" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
         </div>
 
-        <div class="grid grid-cols-2 gap-2">
-          <div>
-            <label class="block text-[11px] text-slate-400 mb-1">紙張底色</label>
-            <select id="param-paper" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200">
-              <option value="cream">米白畫紙</option>
-              <option value="white">純白工程紙</option>
-              <option value="dark">深藍圖紙</option>
-            </select>
+        <!-- Line Brush (線) -->
+        <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-semibold text-cyan-300">「線」筆刷 (role: 'line')</span>
+            <input id="param-ink-color" type="color" value="#1e293b" title="線條墨水顏色" class="w-7 h-5 bg-slate-800 border border-slate-700 rounded cursor-pointer p-0.5" />
           </div>
-          <div>
-            <label class="block text-[11px] text-slate-400 mb-1">墨水顏色</label>
-            <input id="param-ink-color" type="color" value="#1e293b" class="w-full h-7 bg-slate-800 border border-slate-700 rounded cursor-pointer p-0.5" />
+          <select id="param-line-brush" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200">
+            <option value="plotter">標準等寬繪圖筆 (Plotter)</option>
+            <option value="tapered" selected>頭尾筆壓原子筆 (Tapered)</option>
+            <option value="pencil">微抖動鉛筆線 (Pencil)</option>
+          </select>
+        </div>
+
+        <!-- Fill Brush (面) -->
+        <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-semibold text-orange-300">「面」筆刷 (role: 'fill')</span>
+            <input id="param-fill-color" type="color" value="#334155" title="面填充筆刷顏色" class="w-7 h-5 bg-slate-800 border border-slate-700 rounded cursor-pointer p-0.5" />
           </div>
+          <select id="param-fill-brush" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200">
+            <option value="same">跟隨「線」筆刷</option>
+            <option value="pencil" selected>鉛筆排線質感 (Pencil + 顆粒)</option>
+            <option value="marker">半透明麥克筆 (Marker 較粗)</option>
+            <option value="charcoal">炭筆散射筆觸 (Charcoal)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-[11px] text-slate-400 mb-1">紙張底色</label>
+          <select id="param-paper" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200">
+            <option value="cream">米白畫紙</option>
+            <option value="white">純白工程紙</option>
+            <option value="dark">深藍圖紙</option>
+          </select>
         </div>
 
         <div class="flex items-center justify-between">
@@ -303,8 +324,8 @@
           <div id="stat-progress" class="text-sm font-mono font-semibold text-sky-400">0%</div>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
-          <div class="text-[11px] text-slate-400">折線筆畫數</div>
-          <div id="stat-strokes" class="text-sm font-mono font-semibold text-slate-100">0</div>
+          <div class="text-[11px] text-slate-400">線 / 面 筆畫數</div>
+          <div id="stat-strokes" class="text-sm font-mono font-semibold text-slate-100">0 / 0</div>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
           <div class="text-[11px] text-slate-400">總頂點數</div>
@@ -333,8 +354,8 @@
     <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl">
       <div class="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">
         <div>
-          <h3 class="text-sm font-semibold text-slate-100">獨立 p5.js 描線操作腳本</h3>
-          <p class="text-xs text-slate-400">可直接貼到 editor.p5js.org 或下載為 sketch.js 使用</p>
+          <h3 class="text-sm font-semibold text-slate-100">獨立 p5.js 描線操作腳本（含線／面 role 分流）</h3>
+          <p class="text-xs text-slate-400">可直接貼到 editor.p5js.org 或交給其他 AI 客製 drawLineSegment / drawFillSegment</p>
         </div>
         <button id="btn-close-modal" class="text-slate-400 hover:text-white p-1">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -370,8 +391,9 @@
     let orientCos = null;
     let orientSin = null;
 
+    // Each item: { pts: [{x,y}], role: 'line'|'fill', type: 'line'|'multipass'|'hatch'|'residual' }
     let finalPolylines = [];
-    let drawStats = { strokes: 0, points: 0, drawDist: 0, travelDist: 0 };
+    let drawStats = { lineCount: 0, fillCount: 0, points: 0, drawDist: 0, travelDist: 0 };
 
     let currentView = 'p5';
     let isPlaying = true;
@@ -383,7 +405,7 @@
     let lastHeadX = 0, lastHeadY = 0;
 
     // =========================================================================
-    // UI Helpers
+    // UI Helpers & Deterministic Hash
     // =========================================================================
     function showToast(msg) {
       const t = document.getElementById('toast');
@@ -391,6 +413,17 @@
       t.classList.remove('hidden');
       clearTimeout(t._timer);
       t._timer = setTimeout(() => t.classList.add('hidden'), 2400);
+    }
+
+    function detRand(a, b, c = 0) {
+      const x = Math.sin(a * 12.9898 + b * 78.233 + c * 37.719) * 43758.5453;
+      return x - Math.floor(x);
+    }
+
+    function hexToRgb(hex) {
+      const clean = hex.replace('#', '');
+      const n = parseInt(clean, 16);
+      return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
     }
 
     function getParams() {
@@ -413,6 +446,9 @@
         speed: parseInt(document.getElementById('param-speed').value, 10),
         paper: document.getElementById('param-paper').value,
         inkColor: document.getElementById('param-ink-color').value,
+        lineBrush: document.getElementById('param-line-brush').value,
+        fillColor: document.getElementById('param-fill-color').value,
+        fillBrush: document.getElementById('param-fill-brush').value,
         showTravel: document.getElementById('param-show-travel').checked,
         showHead: document.getElementById('param-show-head').checked
       };
@@ -584,7 +620,6 @@
     // Core Algorithms
     // =========================================================================
 
-    // 1A. Adaptive Integral-Image Thresholding (Ignores soft shading/clouds, preserves fine lines)
     function computeAdaptiveBinary(gray, w, h, bias, invert) {
       const integ = new Float64Array((w + 1) * (h + 1));
       const iw = w + 1;
@@ -621,7 +656,6 @@
       return mask;
     }
 
-    // 1B. Otsu Automatic Thresholding
     function computeOtsuThreshold(gray) {
       const hist = new Int32Array(256);
       for (let i = 0; i < gray.length; i++) hist[gray[i]]++;
@@ -647,7 +681,6 @@
       return threshold;
     }
 
-    // 2. Exact 2D Euclidean Distance Transform (Felzenszwalb & Huttenlocher O(W*H))
     function computeEDT(mask, w, h) {
       const INF = 1e12;
       const f = new Float32Array(w * h);
@@ -699,10 +732,8 @@
       return dist;
     }
 
-    // 3. Fast Active-List Zhang-Suen Thinning (10x faster on high-res images)
     function zhangSuenThinning(srcMask, w, h) {
       const img = new Uint8Array(srcMask);
-      // Clear 1px border so neighbor checks never need bounds checks
       for (let x = 0; x < w; x++) { img[x] = 0; img[(h - 1) * w + x] = 0; }
       for (let y = 0; y < h; y++) { img[y * w] = 0; img[y * w + (w - 1)] = 0; }
 
@@ -763,7 +794,6 @@
       return img;
     }
 
-    // 4. Trace Skeleton into Polylines + Spur Pruning + Junction Joining
     function traceSkeletonPolylines(skel, w, h, spurLen) {
       const dirs = [
         [-1, -1], [0, -1], [1, -1],
@@ -903,7 +933,6 @@
         .map(ch => ch.map(p => ({ x: p.x, y: p.y })));
     }
 
-    // 5. Gaussian Smoothing & RDP Simplification
     function gaussianSmooth(pts, sigma) {
       if (sigma <= 0.1 || pts.length < 4) return pts;
       const isClosed = Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 2.0;
@@ -976,7 +1005,6 @@
       return len;
     }
 
-    // 6. Multipass Normal-Offset Parallel Lines
     function generateMultipass(polylines, distMap, w, h, penWidth) {
       const extra = [];
       for (const poly of polylines) {
@@ -1009,13 +1037,12 @@
               offPts.push({ x: ox, y: oy });
             }
           }
-          if (offPts.length >= 2) extra.push({ pts: offPts, type: 'multipass' });
+          if (offPts.length >= 2) extra.push({ pts: offPts, role: 'line', type: 'multipass' });
         }
       }
       return extra;
     }
 
-    // 7. Double-Angle Orientation Field & Jobard-Lefer Streamline Hatching
     function buildOrientationField(polylines, w, h) {
       const cos2 = new Float32Array(w * h);
       const sin2 = new Float32Array(w * h);
@@ -1188,7 +1215,7 @@
         const dy = pts[pts.length - 1].y - pts[0].y;
         if (dx * ORIENT_X + dy * ORIENT_Y < 0) pts.reverse();
 
-        streamlines.push({ pts: rdpSimplify(pts, 0.75), type: 'hatch' });
+        streamlines.push({ pts: rdpSimplify(pts, 0.75), role: 'fill', type: 'hatch' });
 
         for (let i = 2; i < pts.length - 2; i += Math.max(3, Math.round(dSep / stepSize))) {
           const tx = pts[i + 1].x - pts[i - 1].x;
@@ -1219,13 +1246,13 @@
           if (inside) {
             cur.push({ x, y });
           } else if (cur.length >= 2) {
-            lines.push({ pts: [cur[0], cur[cur.length - 1]], type: 'hatch' });
+            lines.push({ pts: [cur[0], cur[cur.length - 1]], role: 'fill', type: 'hatch' });
             cur = [];
           } else {
             cur = [];
           }
         }
-        if (cur.length >= 2) lines.push({ pts: [cur[0], cur[cur.length - 1]], type: 'hatch' });
+        if (cur.length >= 2) lines.push({ pts: [cur[0], cur[cur.length - 1]], role: 'fill', type: 'hatch' });
       }
       return lines;
     }
@@ -1240,10 +1267,9 @@
           }
         }
       }
-      return traceSkeletonPolylines(edge, w, h, 2).map(pts => ({ pts: rdpSimplify(pts, 1.0), type: 'hatch' }));
+      return traceSkeletonPolylines(edge, w, h, 2).map(pts => ({ pts: rdpSimplify(pts, 1.0), role: 'fill', type: 'hatch' }));
     }
 
-    // 8. Lightweight Residual Refinement
     function residualRefine(polylines, binaryMask, w, h, penWidth, minLen) {
       const simCanvas = document.createElement('canvas');
       simCanvas.width = w;
@@ -1277,10 +1303,9 @@
       return extraChains
         .map(pts => rdpSimplify(pts, 0.9))
         .filter(pts => pts.length >= 2 && polylineLength(pts) >= minLen)
-        .map(pts => ({ pts, type: 'residual' }));
+        .map(pts => ({ pts, role: 'line', type: 'residual' }));
     }
 
-    // 9. Fast Greedy Nearest-Neighbor Path Sorting (Typed-Array accelerated)
     function sortPolylinesGreedy(polylines) {
       const n = polylines.length;
       if (n === 0) return { sorted: [], drawDist: 0, travelDist: 0 };
@@ -1309,7 +1334,11 @@
           if (de < bestDistSq) { bestDistSq = de; bestIdx = i; flip = true; }
         }
         used[bestIdx] = 1;
-        const chosen = { pts: flip ? [...polylines[bestIdx].pts].reverse() : polylines[bestIdx].pts, type: polylines[bestIdx].type };
+        const chosen = {
+          pts: flip ? [...polylines[bestIdx].pts].reverse() : polylines[bestIdx].pts,
+          role: polylines[bestIdx].role,
+          type: polylines[bestIdx].type
+        };
         travelDist += Math.sqrt(bestDistSq);
         drawDist += polylineLength(chosen.pts);
         const endPt = chosen.pts[chosen.pts.length - 1];
@@ -1384,7 +1413,7 @@
           .map(pts => gaussianSmooth(pts, params.smooth))
           .map(pts => rdpSimplify(pts, params.simplify))
           .filter(pts => pts.length >= 2 && polylineLength(pts) >= params.minLen)
-          .map(pts => ({ pts, type: 'line' }));
+          .map(pts => ({ pts, role: 'line', type: 'line' }));
 
         let allPolys = [...linePolys];
         if (params.multipass) {
@@ -1409,16 +1438,21 @@
 
         const sortedRes = sortPolylinesGreedy(allPolys);
         finalPolylines = sortedRes.sorted;
-        let totalPts = 0;
-        for (const p of finalPolylines) totalPts += p.pts.length;
+        let totalPts = 0, lineCount = 0, fillCount = 0;
+        for (const p of finalPolylines) {
+          totalPts += p.pts.length;
+          if (p.role === 'fill') fillCount++;
+          else lineCount++;
+        }
         drawStats = {
-          strokes: finalPolylines.length,
+          lineCount,
+          fillCount,
           points: totalPts,
           drawDist: sortedRes.drawDist,
           travelDist: sortedRes.travelDist
         };
 
-        document.getElementById('stat-strokes').textContent = drawStats.strokes;
+        document.getElementById('stat-strokes').textContent = `${lineCount} / ${fillCount}`;
         document.getElementById('stat-points').textContent = drawStats.points;
         const totalD = drawStats.drawDist + drawStats.travelDist;
         const pct = totalD > 0 ? Math.round((drawStats.drawDist / totalD) * 100) : 0;
@@ -1431,8 +1465,52 @@
     }
 
     // =========================================================================
-    // p5.js Instance & Offscreen Buffered Rendering (60fps even at 2000px+)
+    // Dual-Brush Renderer (Line vs. Fill)
     // =========================================================================
+    function drawSegmentStyled(pg, poly, sIdx, pIdx, params) {
+      const pts = poly.pts;
+      const p0 = pts[pIdx], p1 = pts[pIdx + 1];
+      const isFill = poly.role === 'fill';
+      const brush = isFill
+        ? (params.fillBrush === 'same' ? params.lineBrush : params.fillBrush)
+        : params.lineBrush;
+      const rgb = hexToRgb(isFill && params.fillBrush !== 'same' ? params.fillColor : params.inkColor);
+      const t = pts.length > 2 ? (pIdx + 0.5) / (pts.length - 1) : 0.5;
+
+      if (brush === 'plotter') {
+        pg.stroke(rgb.r, rgb.g, rgb.b, 255);
+        pg.strokeWeight(params.penWidth);
+        pg.line(p0.x, p0.y, p1.x, p1.y);
+      } else if (brush === 'tapered') {
+        const pressure = 0.35 + 0.85 * Math.sin(Math.PI * t);
+        pg.stroke(rgb.r, rgb.g, rgb.b, 240);
+        pg.strokeWeight(Math.max(0.4, params.penWidth * pressure));
+        pg.line(p0.x, p0.y, p1.x, p1.y);
+      } else if (brush === 'pencil') {
+        const jx = (detRand(sIdx, pIdx, 1) - 0.5) * 1.1;
+        const jy = (detRand(sIdx, pIdx, 2) - 0.5) * 1.1;
+        const alpha = 110 + detRand(sIdx, pIdx, 3) * 85;
+        pg.stroke(rgb.r, rgb.g, rgb.b, alpha);
+        pg.strokeWeight(Math.max(0.5, params.penWidth * 0.8));
+        pg.line(p0.x + jx, p0.y + jy, p1.x - jx * 0.6, p1.y - jy * 0.6);
+        // Subtle graphite grain
+        pg.stroke(rgb.r, rgb.g, rgb.b, alpha * 0.45);
+        pg.line(p0.x - jx * 0.8, p0.y + jy * 0.8, p1.x + jx * 0.5, p1.y - jy * 0.5);
+      } else if (brush === 'marker') {
+        pg.stroke(rgb.r, rgb.g, rgb.b, 75);
+        pg.strokeWeight(Math.max(2.0, params.penWidth * 2.2));
+        pg.line(p0.x, p0.y, p1.x, p1.y);
+      } else if (brush === 'charcoal') {
+        pg.stroke(rgb.r, rgb.g, rgb.b, 90);
+        pg.strokeWeight(Math.max(0.6, params.penWidth * 0.7));
+        for (let k = 0; k < 4; k++) {
+          const ox = (detRand(sIdx, pIdx, 10 + k) - 0.5) * params.penWidth * 2.4;
+          const oy = (detRand(sIdx, pIdx, 20 + k) - 0.5) * params.penWidth * 2.4;
+          pg.line(p0.x + ox, p0.y + oy, p1.x + ox, p1.y + oy);
+        }
+      }
+    }
+
     function getPaperBg(paper) {
       if (paper === 'white') return '#ffffff';
       if (paper === 'dark') return '#0c192c';
@@ -1453,8 +1531,6 @@
       pgTravel.clear();
 
       pgCompleted.noFill();
-      pgCompleted.stroke(params.inkColor);
-      pgCompleted.strokeWeight(params.penWidth);
       pgCompleted.strokeCap(p5Instance.ROUND);
       pgCompleted.strokeJoin(p5Instance.ROUND);
 
@@ -1465,21 +1541,23 @@
       let px = 0, py = 0;
       const doneCount = animState.done ? finalPolylines.length : animState.strokeIdx;
       for (let s = 0; s < doneCount && s < finalPolylines.length; s++) {
-        const pts = finalPolylines[s].pts;
+        const poly = finalPolylines[s];
+        const pts = poly.pts;
         if (pts.length > 0) {
           pgTravel.line(px, py, pts[0].x, pts[0].y);
           px = pts[pts.length - 1].x;
           py = pts[pts.length - 1].y;
         }
-        pgCompleted.beginShape();
-        for (let i = 0; i < pts.length; i++) pgCompleted.vertex(pts[i].x, pts[i].y);
-        pgCompleted.endShape();
+        for (let i = 0; i < pts.length - 1; i++) {
+          drawSegmentStyled(pgCompleted, poly, s, i, params);
+        }
       }
       if (!animState.done && animState.strokeIdx < finalPolylines.length) {
-        const curPts = finalPolylines[animState.strokeIdx].pts;
+        const poly = finalPolylines[animState.strokeIdx];
+        const curPts = poly.pts;
         if (curPts.length > 0) pgTravel.line(px, py, curPts[0].x, curPts[0].y);
         for (let i = 0; i < animState.ptIdx && i < curPts.length - 1; i++) {
-          pgCompleted.line(curPts[i].x, curPts[i].y, curPts[i + 1].x, curPts[i + 1].y);
+          drawSegmentStyled(pgCompleted, poly, animState.strokeIdx, i, params);
         }
       }
       lastHeadX = px;
@@ -1517,32 +1595,29 @@
 
         p.draw = () => {
           const params = getParams();
-          const styleKey = `${params.inkColor}_${params.penWidth}`;
+          const styleKey = `${params.inkColor}_${params.penWidth}_${params.lineBrush}_${params.fillColor}_${params.fillBrush}`;
           if (styleKey !== lastRenderStyleKey) {
             lastRenderStyleKey = styleKey;
             rebuildGraphicsCache(params);
           }
 
           if (isPlaying && !animState.done && pgCompleted && pgTravel) {
-            pgCompleted.stroke(params.inkColor);
-            pgCompleted.strokeWeight(params.penWidth);
-
             let steps = params.speed;
             while (steps > 0 && !animState.done) {
               if (animState.strokeIdx >= finalPolylines.length) {
                 animState.done = true;
                 break;
               }
-              const curPts = finalPolylines[animState.strokeIdx].pts;
+              const poly = finalPolylines[animState.strokeIdx];
+              const curPts = poly.pts;
               if (animState.ptIdx === 0 && curPts.length > 0) {
                 pgTravel.line(lastHeadX, lastHeadY, curPts[0].x, curPts[0].y);
                 lastHeadX = curPts[0].x;
                 lastHeadY = curPts[0].y;
               }
               if (animState.ptIdx < curPts.length - 1) {
-                const p0 = curPts[animState.ptIdx];
+                drawSegmentStyled(pgCompleted, poly, animState.strokeIdx, animState.ptIdx, params);
                 const p1 = curPts[animState.ptIdx + 1];
-                pgCompleted.line(p0.x, p0.y, p1.x, p1.y);
                 lastHeadX = p1.x;
                 lastHeadY = p1.y;
                 animState.ptIdx++;
@@ -1563,8 +1638,9 @@
           if (pgCompleted) p.image(pgCompleted, 0, 0);
 
           if (params.showHead && !animState.done && finalPolylines.length > 0) {
+            const isFill = animState.strokeIdx < finalPolylines.length && finalPolylines[animState.strokeIdx].role === 'fill';
             p.push();
-            p.stroke(56, 189, 248);
+            p.stroke(isFill ? '#fb923c' : '#38bdf8');
             p.strokeWeight(1.5);
             p.noFill();
             p.circle(lastHeadX, lastHeadY, 14);
@@ -1636,30 +1712,81 @@
       const params = getParams();
       const paths = finalPolylines.map(poly => {
         const d = poly.pts.map((pt, i) => `${i === 0 ? 'M' : 'L'}${pt.x.toFixed(2)},${pt.y.toFixed(2)}`).join(' ');
-        return `  <path d="${d}" fill="none" stroke="${params.inkColor}" stroke-width="${params.penWidth}" stroke-linecap="round" stroke-linejoin="round"/>`;
+        const col = poly.role === 'fill' && params.fillBrush !== 'same' ? params.fillColor : params.inkColor;
+        return `  <path data-role="${poly.role}" data-type="${poly.type}" d="${d}" fill="none" stroke="${col}" stroke-width="${params.penWidth}" stroke-linecap="round" stroke-linejoin="round"/>`;
       }).join('\n');
       return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${workW} ${workH}" width="${workW}" height="${workH}">\n${paths}\n</svg>`;
     }
 
     function generateP5Code() {
       const params = getParams();
-      const compactPolys = finalPolylines.map(p => p.pts.map(pt => [Number(pt.x.toFixed(1)), Number(pt.y.toFixed(1))]));
+      const compactPolys = finalPolylines.map(p => ({
+        role: p.role,
+        type: p.type,
+        pts: p.pts.map(pt => [Number(pt.x.toFixed(1)), Number(pt.y.toFixed(1))])
+      }));
+      const lineRgb = hexToRgb(params.inkColor);
+      const fillRgb = hexToRgb(params.fillBrush === 'same' ? params.inkColor : params.fillColor);
       return `// Generated by Ring-XY-Plotter -> p5.js Converter
-// Strokes: ${finalPolylines.length}, Canvas: ${workW}x${workH}
+// Line strokes: ${drawStats.lineCount}, Fill strokes: ${drawStats.fillCount}, Canvas: ${workW}x${workH}
+// Each item: { role: 'line' | 'fill', type: 'line' | 'multipass' | 'hatch' | 'residual', pts: [[x, y], ...] }
 const POLYLINES = ${JSON.stringify(compactPolys)};
 
 let sIdx = 0;
 let pIdx = 0;
 const SPEED = ${params.speed}; // points per frame
+const PEN_WIDTH = ${params.penWidth};
+const LINE_BRUSH = '${params.lineBrush}'; // 'plotter' | 'tapered' | 'pencil'
+const FILL_BRUSH = '${params.fillBrush === 'same' ? params.lineBrush : params.fillBrush}'; // 'plotter' | 'tapered' | 'pencil' | 'marker' | 'charcoal'
 
 function setup() {
   createCanvas(${workW}, ${workH});
   background('${getPaperBg(params.paper)}');
-  stroke('${params.inkColor}');
-  strokeWeight(${params.penWidth});
   strokeCap(ROUND);
   strokeJoin(ROUND);
   noFill();
+}
+
+function drawLineSegment(pts, idx, type) {
+  const [x1, y1] = pts[idx], [x2, y2] = pts[idx + 1];
+  const t = pts.length > 2 ? (idx + 0.5) / (pts.length - 1) : 0.5;
+  if (LINE_BRUSH === 'tapered') {
+    const pressure = 0.35 + 0.85 * sin(PI * t);
+    stroke(${lineRgb.r}, ${lineRgb.g}, ${lineRgb.b}, 240);
+    strokeWeight(max(0.4, PEN_WIDTH * pressure));
+    line(x1, y1, x2, y2);
+  } else if (LINE_BRUSH === 'pencil') {
+    stroke(${lineRgb.r}, ${lineRgb.g}, ${lineRgb.b}, random(110, 195));
+    strokeWeight(max(0.5, PEN_WIDTH * 0.8));
+    line(x1 + random(-0.5, 0.5), y1 + random(-0.5, 0.5), x2, y2);
+  } else {
+    stroke(${lineRgb.r}, ${lineRgb.g}, ${lineRgb.b}, 255);
+    strokeWeight(PEN_WIDTH);
+    line(x1, y1, x2, y2);
+  }
+}
+
+function drawFillSegment(pts, idx, type) {
+  const [x1, y1] = pts[idx], [x2, y2] = pts[idx + 1];
+  if (FILL_BRUSH === 'pencil') {
+    stroke(${fillRgb.r}, ${fillRgb.g}, ${fillRgb.b}, random(110, 195));
+    strokeWeight(max(0.5, PEN_WIDTH * 0.8));
+    line(x1 + random(-0.55, 0.55), y1 + random(-0.55, 0.55), x2, y2);
+  } else if (FILL_BRUSH === 'marker') {
+    stroke(${fillRgb.r}, ${fillRgb.g}, ${fillRgb.b}, 75);
+    strokeWeight(max(2.0, PEN_WIDTH * 2.2));
+    line(x1, y1, x2, y2);
+  } else if (FILL_BRUSH === 'charcoal') {
+    stroke(${fillRgb.r}, ${fillRgb.g}, ${fillRgb.b}, 90);
+    strokeWeight(max(0.6, PEN_WIDTH * 0.7));
+    for (let k = 0; k < 4; k++) {
+      const ox = random(-PEN_WIDTH * 1.2, PEN_WIDTH * 1.2);
+      const oy = random(-PEN_WIDTH * 1.2, PEN_WIDTH * 1.2);
+      line(x1 + ox, y1 + oy, x2 + ox, y2 + oy);
+    }
+  } else {
+    drawLineSegment(pts, idx, type);
+  }
 }
 
 function draw() {
@@ -1668,9 +1795,10 @@ function draw() {
       noLoop();
       return;
     }
-    const pts = POLYLINES[sIdx];
-    if (pIdx < pts.length - 1) {
-      line(pts[pIdx][0], pts[pIdx][1], pts[pIdx + 1][0], pts[pIdx + 1][1]);
+    const item = POLYLINES[sIdx];
+    if (pIdx < item.pts.length - 1) {
+      if (item.role === 'fill') drawFillSegment(item.pts, pIdx, item.type);
+      else drawLineSegment(item.pts, pIdx, item.type);
       pIdx++;
     } else {
       sIdx++;
