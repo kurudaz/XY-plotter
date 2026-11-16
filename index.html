@@ -254,7 +254,7 @@
           <select id="param-line-brush" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200">
             <option value="plotter">標準等寬繪圖筆 (Plotter)</option>
             <option value="tapered" selected>頭尾筆壓原子筆 (Tapered)</option>
-            <option value="pencil">微抖動鉛筆線 (Pencil)</option>
+            <option value="pencil">鉛筆排線質感 (Pencil + 顆粒)</option>
           </select>
         </div>
 
@@ -1756,9 +1756,13 @@ function drawLineSegment(pts, idx, type) {
     strokeWeight(max(0.4, PEN_WIDTH * pressure));
     line(x1, y1, x2, y2);
   } else if (LINE_BRUSH === 'pencil') {
-    stroke(${lineRgb.r}, ${lineRgb.g}, ${lineRgb.b}, random(110, 195));
+    const jx = random(-0.55, 0.55), jy = random(-0.55, 0.55);
+    const alpha = random(110, 195);
+    stroke(${lineRgb.r}, ${lineRgb.g}, ${lineRgb.b}, alpha);
     strokeWeight(max(0.5, PEN_WIDTH * 0.8));
-    line(x1 + random(-0.5, 0.5), y1 + random(-0.5, 0.5), x2, y2);
+    line(x1 + jx, y1 + jy, x2 - jx * 0.6, y2 - jy * 0.6);
+    stroke(${lineRgb.r}, ${lineRgb.g}, ${lineRgb.b}, alpha * 0.45);
+    line(x1 - jx * 0.8, y1 + jy * 0.8, x2 + jx * 0.5, y2 - jy * 0.5);
   } else {
     stroke(${lineRgb.r}, ${lineRgb.g}, ${lineRgb.b}, 255);
     strokeWeight(PEN_WIDTH);
@@ -1769,9 +1773,13 @@ function drawLineSegment(pts, idx, type) {
 function drawFillSegment(pts, idx, type) {
   const [x1, y1] = pts[idx], [x2, y2] = pts[idx + 1];
   if (FILL_BRUSH === 'pencil') {
-    stroke(${fillRgb.r}, ${fillRgb.g}, ${fillRgb.b}, random(110, 195));
+    const jx = random(-0.55, 0.55), jy = random(-0.55, 0.55);
+    const alpha = random(110, 195);
+    stroke(${fillRgb.r}, ${fillRgb.g}, ${fillRgb.b}, alpha);
     strokeWeight(max(0.5, PEN_WIDTH * 0.8));
-    line(x1 + random(-0.55, 0.55), y1 + random(-0.55, 0.55), x2, y2);
+    line(x1 + jx, y1 + jy, x2 - jx * 0.6, y2 - jy * 0.6);
+    stroke(${fillRgb.r}, ${fillRgb.g}, ${fillRgb.b}, alpha * 0.45);
+    line(x1 - jx * 0.8, y1 + jy * 0.8, x2 + jx * 0.5, y2 - jy * 0.5);
   } else if (FILL_BRUSH === 'marker') {
     stroke(${fillRgb.r}, ${fillRgb.g}, ${fillRgb.b}, 75);
     strokeWeight(max(2.0, PEN_WIDTH * 2.2));
