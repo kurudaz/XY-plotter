@@ -6,6 +6,7 @@
   <title>Ring-XY-Plotter → p5.js 數位描線轉換器</title>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+  <script defer src="stage-layers.bundle.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -356,6 +357,30 @@
         </div>
       </div>
 
+      <section class="bg-slate-900 border border-emerald-500/40 rounded-xl p-3 space-y-2" aria-label="階段圖層 PSD">
+        <div class="flex flex-wrap items-center gap-3">
+          <h2 class="text-sm font-semibold text-emerald-300">階段圖層 → PSD</h2>
+          <label class="text-xs">分層方式
+            <select id="stage-split" class="bg-slate-800 border border-slate-600 rounded px-2 py-1">
+              <option value="percent">每 10% 進度</option>
+              <option value="stages">依彩色階段（描線仍每 10%）</option>
+            </select>
+          </label>
+          <label class="text-xs"><input id="stage-auto" type="checkbox" checked /> 完成後自動整理</label>
+          <button id="stage-refresh" class="text-xs rounded bg-slate-700 px-3 py-1.5">重新整理圖層</button>
+        </div>
+        <p id="stage-status" role="status" aria-live="polite" class="text-xs text-emerald-200">完成描繪後，自動整理成 PSD 圖層。</p>
+        <p class="text-xs text-slate-400">PhotoCraft / CSP 可開啟。每層只保留該階段變動像素，顏色包含當時底色混合；由下往上依序開啟可還原進度。不是十張完整截圖，也不是可任意換底色的透明筆觸。</p>
+        <div id="stage-downloads" hidden>
+          <div class="flex flex-wrap gap-3 py-2 text-xs">
+            <a id="stage-psd" class="rounded bg-emerald-600 px-3 py-2 font-semibold" download>下載分層 PSD</a>
+            <a id="stage-png" class="rounded bg-slate-700 px-3 py-2" download>最終對照 PNG</a>
+            <a id="stage-report" class="rounded bg-slate-700 px-3 py-2" download>驗證紀錄</a>
+          </div>
+          <details class="text-xs text-slate-300"><summary class="cursor-pointer">圖層順序（上方是較晚階段）</summary><ol id="stage-list" class="space-y-1 pt-2"></ol></details>
+        </div>
+      </section>
+
       <!-- Progress & Stats Bar -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         <div class="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
@@ -434,6 +459,7 @@
     let finalPolylines = [];
     let drawStats = { lineCount: 0, fillCount: 0, points: 0, drawDist: 0, travelDist: 0 };
 
+    let sceneRevision = 0;
     let appMode = 'plotter'; // 'plotter' | 'watercolor'
     let srcRgbaBuf = null;
     let wcStrokes = []; // { pts: [{x,y}], r, g, b, alpha, width, layer }
@@ -1773,6 +1799,8 @@
     // Main Pipeline Execution
     // =========================================================================
     function runPipeline() {
+      sceneRevision++;
+      window.stageLayerExport?.invalidate();
       const badge = document.getElementById('processing-badge');
       badge.classList.remove('hidden');
 
@@ -2030,6 +2058,15 @@
         for (let s = 0; s < doneCount && s < wcStrokes.length; s++) {
           drawWatercolorStroke(pgCompleted, wcStrokes[s]);
         }
+        // Keep instant completion and style changes identical to normal playback.
+        if (animState.done) {
+          for (let s = 0; s < finalPolylines.length; s++) {
+            const poly = finalPolylines[s];
+            for (let i = 0; i < poly.pts.length - 1; i++) {
+              drawSegmentStyled(pgCompleted, poly, s, i, params);
+            }
+          }
+        }
         return;
       }
       let px = 0, py = 0;
@@ -2187,6 +2224,7 @@
             p.line(lastHeadX, lastHeadY - 11, lastHeadX, lastHeadY + 11);
             p.pop();
           }
+          window.stageLayerExport?.tick();
         };
       });
     }
@@ -2534,6 +2572,14 @@ function draw() {
         showToast('已下載 sketch.js');
       });
 
+      window.stageLayerExport?.install({ getScene: () => ({
+        revision: sceneRevision, mode: appMode, width: workW, height: workH,
+        params: getParams(), paper: getPaperBg(getParams().paper),
+        polylines: finalPolylines, watercolor: wcStrokes,
+        p5: p5Instance, completed: pgCompleted, done: animState.done,
+        processing: !document.getElementById('processing-badge').classList.contains('hidden'),
+        drawLine: drawSegmentStyled, drawWatercolor: drawWatercolorStroke, random: detRand
+      }) });
       loadSample('manga');
     });
   </script>
